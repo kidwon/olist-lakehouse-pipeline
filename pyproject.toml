@@ -1,0 +1,27 @@
+[project]
+name = "olist-pipeline"
+version = "0.1.0"
+description = "Incremental medallion lakehouse on the Olist e-commerce dataset (Databricks + Delta Lake)"
+requires-python = ">=3.10,<3.13"
+dependencies = []  # pyspark / delta-spark are provided by the Databricks runtime
+
+[project.scripts]
+olist = "olist_pipeline.cli:main"
+
+[dependency-groups]
+dev = [
+    "pyspark==4.0.1",
+    "delta-spark==4.0.0",
+    "pytest>=8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/olist_pipeline"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

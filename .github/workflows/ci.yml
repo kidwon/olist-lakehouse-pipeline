@@ -1,0 +1,22 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: astral-sh/setup-uv@v6
+      - name: Install
+        run: uv sync --python 3.12
+      - name: Unit + end-to-end tests (local Spark + Delta, synthetic Olist fixture)
+        run: uv run pytest -v
+      - name: Build wheel (the artifact the Databricks bundle deploys)
+        run: uv build --wheel

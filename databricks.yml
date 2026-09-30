@@ -1,0 +1,18 @@
+# Databricks Asset Bundle: builds the wheel and deploys the two jobs (serverless).
+bundle:
+  name: olist_lakehouse_pipeline
+
+include:
+  - resources/*.yml
+
+artifacts:
+  default:
+    type: whl
+    build: uv build --wheel
+    path: .
+
+targets:
+  dev:
+    # Prefixes job names with [dev <user>] and pauses schedules.
+    mode: development
+    default: true

@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.databricks/
+# local pipeline output and the Kaggle dump (CC BY-NC-SA: not redistributed here)
+data/
+spark-warehouse/
+metastore_db/
+derby.log

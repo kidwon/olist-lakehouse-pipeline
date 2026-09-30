@@ -1,0 +1,92 @@
+resources:
+  jobs:
+    # One-off: create schemas and build the replay plan from the raw Olist CSVs in the Volume.
+    olist_setup:
+      name: olist_setup
+      tasks:
+        - task_key: setup
+          environment_key: default
+          python_wheel_task:
+            package_name: olist_pipeline
+            entry_point: olist
+            parameters: ["setup", "--env", "databricks"]
+        - task_key: prepare_replay
+          depends_on: [{ task_key: setup }]
+          environment_key: default
+          python_wheel_task:
+            package_name: olist_pipeline
+            entry_point: olist
+            parameters: ["prepare", "--env", "databricks"]
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "2"
+            dependencies:
+              - ../dist/*.whl
+
+    # Daily: drop the next batch into landing, then run the medallion pipeline on it.
+    olist_daily:
+      name: olist_daily
+      max_concurrent_runs: 1
+      parameters:
+        - name: batch_date
+          default: next
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: Asia/Tokyo
+        pause_status: PAUSED
+      tasks:
+        - task_key: replay_batch
+          environment_key: default
+          python_wheel_task:
+            package_name: olist_pipeline
+            entry_point: olist
+            parameters: ["replay", "--env", "databricks", "--run-id", "{{job.run_id}}", "--batch-date", "{{job.parameters.batch_date}}"]
+        - task_key: bronze
+          depends_on: [{ task_key: replay_batch }]
+          environment_key: default
+          python_wheel_task:
+            package_name: olist_pipeline
+            entry_point: olist
+            parameters: ["bronze", "--env", "databricks", "--run-id", "{{job.run_id}}"]
+        - task_key: silver
+          depends_on: [{ task_key: bronze }]
+          environment_key: default
+          python_wheel_task:
+            package_name: olist_pipeline
+            entry_point: olist
+            parameters: ["silver", "--env", "databricks", "--run-id", "{{job.run_id}}"]
+        - task_key: dim_seller_scd2
+          depends_on: [{ task_key: silver }]
+          environment_key: default
+          python_wheel_task:
+            package_name: olist_pipeline
+            entry_point: olist
+            parameters: ["scd2", "--env", "databricks", "--run-id", "{{job.run_id}}"]
+        - task_key: dq_gate
+          depends_on: [{ task_key: dim_seller_scd2 }]
+          environment_key: default
+          python_wheel_task:
+            package_name: olist_pipeline
+            entry_point: olist
+            parameters: ["gate", "--env", "databricks", "--run-id", "{{job.run_id}}"]
+        - task_key: gold
+          depends_on: [{ task_key: dq_gate }]
+          environment_key: default
+          python_wheel_task:
+            package_name: olist_pipeline
+            entry_point: olist
+            parameters: ["gold", "--env", "databricks", "--run-id", "{{job.run_id}}"]
+        - task_key: mart
+          depends_on: [{ task_key: gold }]
+          environment_key: default
+          python_wheel_task:
+            package_name: olist_pipeline
+            entry_point: olist
+            parameters: ["mart", "--env", "databricks", "--run-id", "{{job.run_id}}"]
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "2"
+            dependencies:
+              - ../dist/*.whl
