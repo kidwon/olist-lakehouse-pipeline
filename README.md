@@ -79,8 +79,22 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 | 英語訳のないカテゴリ | 13 商品 | 英語名は NULL のまま保持（元のカテゴリ名は残す） |
 
 ### スクリーンショット（Databricks Free Edition）
-<!-- 実行後に追加: docs/images/job_run.png, docs/images/dq_dashboard.png, docs/images/biz_dashboard.png -->
-_Databricks 上での実行後に追加予定です：ジョブの実行グラフ、データ品質ダッシュボード、業務ダッシュボード（クエリは [docs/dashboard_queries.sql](docs/dashboard_queries.sql)）。_
+
+**日次ジョブ `olist_daily`**：サーバーレスで 7 タスクを順に実行し、1 回あたり約 6 分半で完了します（11 回連続成功）。
+
+![olist_daily のタスク DAG](docs/images/job_dag.png)
+
+![olist_daily の実行タイムライン](docs/images/job_run_timeline.png)
+
+**データ品質ダッシュボード**：11 回の実行すべてで不正率は 5% の閾値を大きく下回り（最大 2.1%）、ゲートで止まった実行は 0 件です。ルール別の隔離件数と、重複排除・未知フィールド退避の件数を日ごとに確認できます。
+
+![データ品質ダッシュボード](docs/images/dq_dashboard.png)
+
+![ルール別の件数とゲート判定](docs/images/dq_dashboard_rules.png)
+
+**業務ダッシュボード**：Gold 層から算出した GMV・定時配達率・州別 GMV。州は SCD2 の `dim_seller` から注文時点の値を使っています。ダッシュボードは `scripts/build_dashboard.py` で生成し、Asset Bundle でデプロイしています。
+
+![業務ダッシュボード](docs/images/biz_dashboard.png)
 
 ---
 

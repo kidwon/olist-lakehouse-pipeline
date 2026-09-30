@@ -1,0 +1,1042 @@
+{
+  "datasets": [
+    {
+      "name": "kpi_ops",
+      "displayName": "kpi_ops",
+      "queryLines": [
+        "SELECT COUNT(DISTINCT run_id) AS runs,\n",
+        "COUNT(DISTINCT CASE WHEN NOT passed THEN run_id END) AS blocked_runs,\n",
+        "(SELECT COUNT(*) FROM workspace.olist_ops.quarantine) AS quarantined\n",
+        "FROM workspace.olist_ops.dq_gate_log\n"
+      ]
+    },
+    {
+      "name": "dq_ratio",
+      "displayName": "dq_ratio",
+      "queryLines": [
+        "SELECT batch_date, table_name AS series, SUM(failed_rows) / SUM(total_rows) AS bad_ratio\n",
+        "FROM workspace.olist_ops.dq_metrics\n",
+        "WHERE rule = '__all__'\n",
+        "GROUP BY ALL\n",
+        "UNION ALL\n",
+        "SELECT DISTINCT batch_date, 'threshold (5%)' AS series, 0.05 AS bad_ratio\n",
+        "FROM workspace.olist_ops.dq_metrics\n"
+      ]
+    },
+    {
+      "name": "dq_errors",
+      "displayName": "dq_errors",
+      "queryLines": [
+        "SELECT batch_date, rule, SUM(failed_rows) AS rows\n",
+        "FROM workspace.olist_ops.dq_metrics\n",
+        "WHERE severity = 'error' AND rule <> '__all__' AND failed_rows > 0 AND batch_date > DATE'2018-05-31'\n",
+        "GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "dq_handled",
+      "displayName": "dq_handled",
+      "queryLines": [
+        "SELECT batch_date, rule, SUM(failed_rows) AS rows\n",
+        "FROM workspace.olist_ops.dq_metrics\n",
+        "WHERE severity IN ('info', 'warn') AND failed_rows > 0 AND batch_date > DATE'2018-05-31'\n",
+        "GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "dq_gate",
+      "displayName": "dq_gate",
+      "queryLines": [
+        "SELECT evaluated_at, run_id, table_name, bad_rows, total_rows,\n",
+        "ROUND(bad_ratio * 100, 2) AS bad_pct, passed\n",
+        "FROM workspace.olist_ops.dq_gate_log\n",
+        "WHERE total_rows > 0\n",
+        "ORDER BY evaluated_at DESC, table_name\n"
+      ]
+    },
+    {
+      "name": "dq_quarantine",
+      "displayName": "dq_quarantine",
+      "queryLines": [
+        "SELECT batch_date, table_name, array_join(failed_rules, ', ') AS rules, record\n",
+        "FROM workspace.olist_ops.quarantine\n",
+        "ORDER BY quarantined_at DESC\n"
+      ]
+    },
+    {
+      "name": "kpi_biz",
+      "displayName": "kpi_biz",
+      "queryLines": [
+        "SELECT ROUND(SUM(CASE WHEN NOT is_cancelled THEN price END) / 1e6, 2) AS gmv_millions,\n",
+        "COUNT(DISTINCT order_id) AS orders,\n",
+        "AVG(CASE WHEN is_delivered THEN CAST(is_on_time AS INT) END) AS on_time_rate\n",
+        "FROM workspace.olist_gold.fact_order_item\n"
+      ]
+    },
+    {
+      "name": "biz_monthly",
+      "displayName": "biz_monthly",
+      "queryLines": [
+        "SELECT to_date(d.year_month || '-01') AS month,\n",
+        "SUM(CASE WHEN NOT f.is_cancelled THEN f.price END) AS gmv,\n",
+        "AVG(CASE WHEN f.is_delivered THEN CAST(f.is_on_time AS INT) END) AS on_time_rate\n",
+        "FROM workspace.olist_gold.fact_order_item f\n",
+        "JOIN workspace.olist_gold.dim_date d ON d.date_key = f.order_date_key\n",
+        "WHERE d.date >= DATE'2017-01-01'\n",
+        "GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "biz_state",
+      "displayName": "biz_state",
+      "queryLines": [
+        "SELECT s.seller_state,\n",
+        "SUM(f.price) AS gmv,\n",
+        "AVG(CASE WHEN f.is_delivered THEN CAST(f.is_on_time AS INT) END) AS on_time_rate\n",
+        "FROM workspace.olist_gold.fact_order_item f\n",
+        "JOIN workspace.olist_gold.dim_seller s ON s.seller_sk = f.seller_sk\n",
+        "WHERE NOT f.is_cancelled\n",
+        "GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "biz_top",
+      "displayName": "biz_top",
+      "queryLines": [
+        "SELECT seller_id, seller_state,\n",
+        "ROUND(SUM(gmv), 0) AS gmv, SUM(orders) AS orders,\n",
+        "ROUND(SUM(on_time_orders) / NULLIF(SUM(delivered_orders), 0), 3) AS on_time_rate,\n",
+        "ROUND(AVG(avg_review_score), 2) AS avg_review_score\n",
+        "FROM workspace.olist_gold.mart_seller_delivery_performance\n",
+        "GROUP BY ALL\n",
+        "ORDER BY gmv DESC\n",
+        "LIMIT 15\n"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "quality",
+      "displayName": "データ品質 / Data quality",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "dq_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## データ品質 / Data quality\n\n",
+                "Every rule hit is counted per batch in `olist_ops.dq_metrics`. A run whose bad-row ratio exceeds 5% is stopped by `dq_gate` before gold is published.\n\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_runs",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_ops",
+                  "fields": [
+                    {
+                      "name": "runs",
+                      "expression": "`runs`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "runs",
+                  "displayName": "パイプライン実行回数 / Runs"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "パイプライン実行回数 / Runs"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_blocked",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_ops",
+                  "fields": [
+                    {
+                      "name": "blocked_runs",
+                      "expression": "`blocked_runs`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "blocked_runs",
+                  "displayName": "ゲートで停止 / Blocked runs"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ゲートで停止 / Blocked runs"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_quarantined",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_ops",
+                  "fields": [
+                    {
+                      "name": "quarantined",
+                      "expression": "`quarantined`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "quarantined",
+                  "displayName": "隔離レコード / Quarantined rows"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "隔離レコード / Quarantined rows"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "dq_ratio_line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_ratio",
+                  "fields": [
+                    {
+                      "name": "batch_date",
+                      "expression": "`batch_date`"
+                    },
+                    {
+                      "name": "bad_ratio",
+                      "expression": "`bad_ratio`"
+                    },
+                    {
+                      "name": "series",
+                      "expression": "`series`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "batch_date",
+                  "displayName": "バッチ日",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "bad_ratio",
+                  "displayName": "不正率",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "series",
+                  "displayName": "テーブル",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "不正率の推移 / Bad-row ratio per batch (threshold 5%)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "dq_errors_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_errors",
+                  "fields": [
+                    {
+                      "name": "batch_date",
+                      "expression": "`batch_date`"
+                    },
+                    {
+                      "name": "rows",
+                      "expression": "`rows`"
+                    },
+                    {
+                      "name": "rule",
+                      "expression": "`rule`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "batch_date",
+                  "displayName": "バッチ日",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "rows",
+                  "displayName": "件数",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "rule",
+                  "displayName": "ルール",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "隔離したルール違反 / Quarantined, by rule (error)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "dq_handled_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_handled",
+                  "fields": [
+                    {
+                      "name": "batch_date",
+                      "expression": "`batch_date`"
+                    },
+                    {
+                      "name": "rows",
+                      "expression": "`rows`"
+                    },
+                    {
+                      "name": "rule",
+                      "expression": "`rule`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "batch_date",
+                  "displayName": "バッチ日",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "rows",
+                  "displayName": "件数",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "rule",
+                  "displayName": "ルール",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "重複排除・未知フィールド退避 / Duplicates removed, fields rescued (info/warn)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 11,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "dq_gate_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_gate",
+                  "fields": [
+                    {
+                      "name": "evaluated_at",
+                      "expression": "`evaluated_at`"
+                    },
+                    {
+                      "name": "run_id",
+                      "expression": "`run_id`"
+                    },
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "bad_rows",
+                      "expression": "`bad_rows`"
+                    },
+                    {
+                      "name": "total_rows",
+                      "expression": "`total_rows`"
+                    },
+                    {
+                      "name": "bad_pct",
+                      "expression": "`bad_pct`"
+                    },
+                    {
+                      "name": "passed",
+                      "expression": "`passed`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "evaluated_at",
+                    "displayName": "評価日時"
+                  },
+                  {
+                    "fieldName": "run_id",
+                    "displayName": "run_id"
+                  },
+                  {
+                    "fieldName": "table_name",
+                    "displayName": "テーブル"
+                  },
+                  {
+                    "fieldName": "bad_rows",
+                    "displayName": "不正行"
+                  },
+                  {
+                    "fieldName": "total_rows",
+                    "displayName": "全行"
+                  },
+                  {
+                    "fieldName": "bad_pct",
+                    "displayName": "不正率 %"
+                  },
+                  {
+                    "fieldName": "passed",
+                    "displayName": "合格"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ゲート判定 / Gate decisions"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 17,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "dq_quarantine_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dq_quarantine",
+                  "fields": [
+                    {
+                      "name": "batch_date",
+                      "expression": "`batch_date`"
+                    },
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "rules",
+                      "expression": "`rules`"
+                    },
+                    {
+                      "name": "record",
+                      "expression": "`record`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "batch_date",
+                    "displayName": "バッチ日"
+                  },
+                  {
+                    "fieldName": "table_name",
+                    "displayName": "テーブル"
+                  },
+                  {
+                    "fieldName": "rules",
+                    "displayName": "違反ルール"
+                  },
+                  {
+                    "fieldName": "record",
+                    "displayName": "レコード"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "隔離レコード / Quarantined records"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 24,
+            "width": 6,
+            "height": 7
+          }
+        }
+      ]
+    },
+    {
+      "name": "business",
+      "displayName": "業務指標 / Business",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "biz_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## 業務指標 / Business\n\n",
+                "Built from `olist_gold`. Seller location is taken at order time from the SCD2 `dim_seller`, so a seller who moved keeps past sales in the old state. 2018-06 holds only the 10 replayed days, so its month is partial.\n\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_gmv",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_biz",
+                  "fields": [
+                    {
+                      "name": "gmv_millions",
+                      "expression": "`gmv_millions`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "gmv_millions",
+                  "displayName": "GMV（百万 BRL / BRL millions）",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "GMV（百万 BRL / BRL millions）"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_orders",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_biz",
+                  "fields": [
+                    {
+                      "name": "orders",
+                      "expression": "`orders`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "orders",
+                  "displayName": "注文数 / Orders",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "注文数 / Orders"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_on_time",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_biz",
+                  "fields": [
+                    {
+                      "name": "on_time_rate",
+                      "expression": "`on_time_rate`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "on_time_rate",
+                  "displayName": "定時配達率 / On-time rate",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "定時配達率 / On-time rate"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "biz_gmv_month",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "biz_monthly",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "gmv",
+                      "expression": "`gmv`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "displayName": "月",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "gmv",
+                  "displayName": "GMV",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "月次 GMV / Monthly GMV (BRL)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "biz_on_time_month",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "biz_monthly",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "on_time_rate",
+                      "expression": "`on_time_rate`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "displayName": "月",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "on_time_rate",
+                  "displayName": "定時配達率",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "月次 定時配達率 / Monthly on-time rate"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 5,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "biz_state_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "biz_state",
+                  "fields": [
+                    {
+                      "name": "seller_state",
+                      "expression": "`seller_state`"
+                    },
+                    {
+                      "name": "gmv",
+                      "expression": "`gmv`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "seller_state",
+                  "displayName": "州",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "gmv",
+                  "displayName": "GMV",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "注文時点のセラー州別 GMV / GMV by seller state at order time"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "biz_top_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "biz_top",
+                  "fields": [
+                    {
+                      "name": "seller_id",
+                      "expression": "`seller_id`"
+                    },
+                    {
+                      "name": "seller_state",
+                      "expression": "`seller_state`"
+                    },
+                    {
+                      "name": "gmv",
+                      "expression": "`gmv`"
+                    },
+                    {
+                      "name": "orders",
+                      "expression": "`orders`"
+                    },
+                    {
+                      "name": "on_time_rate",
+                      "expression": "`on_time_rate`"
+                    },
+                    {
+                      "name": "avg_review_score",
+                      "expression": "`avg_review_score`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "seller_id",
+                    "displayName": "セラー"
+                  },
+                  {
+                    "fieldName": "seller_state",
+                    "displayName": "州"
+                  },
+                  {
+                    "fieldName": "gmv",
+                    "displayName": "GMV"
+                  },
+                  {
+                    "fieldName": "orders",
+                    "displayName": "注文"
+                  },
+                  {
+                    "fieldName": "on_time_rate",
+                    "displayName": "定時率"
+                  },
+                  {
+                    "fieldName": "avg_review_score",
+                    "displayName": "評価"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "GMV 上位セラー / Top sellers"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 11,
+            "width": 3,
+            "height": 7
+          }
+        }
+      ]
+    }
+  ]
+}

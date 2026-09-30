@@ -79,8 +79,22 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 | 没有英文翻译的品类 | 13 个商品 | 英文名保留为 NULL，保留原品类名 |
 
 ### 截图（Databricks Free Edition）
-<!-- 运行后补充：docs/images/job_run.png, docs/images/dq_dashboard.png, docs/images/biz_dashboard.png -->
-_在 Databricks 上运行后补充：Job 运行图、数据质量 Dashboard、业务 Dashboard（查询见 [docs/dashboard_queries.sql](docs/dashboard_queries.sql)）。_
+
+**每日作业 `olist_daily`**：在 serverless 上依次运行 7 个任务，每次约 6 分半（连续成功 11 次）。
+
+![olist_daily 任务 DAG](docs/images/job_dag.png)
+
+![olist_daily 运行时间线](docs/images/job_run_timeline.png)
+
+**数据质量 Dashboard**：11 次运行的坏行比例都远低于 5% 阈值（最高 2.1%），没有运行被闸门拦下。可以按天查看各规则隔离的行数，以及去重和字段转存的行数。
+
+![数据质量 Dashboard](docs/images/dq_dashboard.png)
+
+![各规则行数与闸门判定](docs/images/dq_dashboard_rules.png)
+
+**业务 Dashboard**：基于 Gold 层计算 GMV、准时交付率和各州 GMV，州取自 SCD2 `dim_seller` 中下单时点的值。Dashboard 由 `scripts/build_dashboard.py` 生成，通过 Asset Bundle 部署。
+
+![业务 Dashboard](docs/images/biz_dashboard.png)
 
 ---
 

@@ -1,9 +1,15 @@
-# Databricks Asset Bundle: builds the wheel and deploys the two jobs (serverless).
+# Databricks Asset Bundle: builds the wheel, deploys the two jobs (serverless) and the dashboard.
 bundle:
   name: olist_lakehouse_pipeline
 
 include:
   - resources/*.yml
+
+variables:
+  warehouse_id:
+    description: SQL warehouse that runs the dashboard queries
+    lookup:
+      warehouse: "Serverless Starter Warehouse"
 
 artifacts:
   default:
