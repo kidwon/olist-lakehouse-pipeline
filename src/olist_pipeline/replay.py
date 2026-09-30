@@ -66,12 +66,15 @@ def _in(bucket: Column, rng: tuple[int, int]) -> Column:
 
 
 def _read_csv(spark: SparkSession, cfg: Config, key: str) -> DataFrame:
-    return (
+    df = (
         spark.read.option("header", True)
         .option("multiLine", True)  # review comments contain line breaks
         .option("escape", '"')
         .csv(f"{cfg.source_path}/{SOURCE_FILES[key]}")
     )
+    # product_category_name_translation.csv starts with a UTF-8 BOM, which would otherwise
+    # end up in the first column name and silently break the category join.
+    return df.toDF(*[c.lstrip("\ufeff") for c in df.columns])
 
 
 def _ts(c: str) -> Column:
@@ -204,7 +207,9 @@ def build_sellers(spark: SparkSession, sellers: DataFrame, cfg: Config) -> DataF
     state = F.element_at(F.array(*[F.lit(s) for _, s in RELOCATION_TARGETS]), (target + 1).cast("int"))
 
     base = sellers.select("seller_id", "seller_zip_code_prefix", "seller_city", "seller_state")
-    moved = _in(b, SELLER_MOVE_BUCKET) & (F.col("_delivery_date") >= move_day)
+    # A "move" to the city the seller is already in is not a change; don't count it as one.
+    really_moves = (city != F.col("seller_city")) | (state != F.col("seller_state"))
+    moved = _in(b, SELLER_MOVE_BUCKET) & really_moves & (F.col("_delivery_date") >= move_day)
     return base.crossJoin(dates).select(
         "seller_id",
         "seller_zip_code_prefix",

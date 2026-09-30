@@ -19,8 +19,8 @@ def _ts(t: dt.datetime | None) -> str:
     return t.strftime("%Y-%m-%d %H:%M:%S") if t else ""
 
 
-def _write(path: Path, header: list[str], rows: list[list]) -> None:
-    with path.open("w", newline="") as f:
+def _write(path: Path, header: list[str], rows: list[list], bom: bool = False) -> None:
+    with path.open("w", newline="", encoding="utf-8-sig" if bom else "utf-8") as f:
         w = csv.writer(f)
         w.writerow(header)
         w.writerows(rows)
@@ -41,7 +41,7 @@ def write_fixture(target: Path, n_orders: int = 3000, start: dt.date = dt.date(2
             "product_weight_g", "product_length_cm", "product_height_cm", "product_width_cm"],
            [[p, CATEGORIES[i % 3][0], 40, 300, 1 + i % 4, 100 * (1 + i % 9), 20, 10, 15] for i, p in enumerate(products)])
     _write(target / "product_category_name_translation.csv", ["product_category_name", "product_category_name_english"],
-           [list(c) for c in CATEGORIES])
+           [list(c) for c in CATEGORIES], bom=True)  # the real file has a BOM too
 
     orders, items, customers, reviews = [], [], [], []
     for n in range(n_orders):

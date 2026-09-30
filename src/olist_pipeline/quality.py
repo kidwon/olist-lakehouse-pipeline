@@ -55,6 +55,9 @@ def order_rules() -> list[Rule]:
         Rule("missing_key", missing("order_id", "change_seq", "change_ts")),
         Rule("unknown_status", ~F.col("order_status").isin(ORDER_STATUSES)),
         Rule("delivered_before_purchase", F.col("order_delivered_customer_ts") < F.col("order_purchase_ts")),
+        # Real Olist data: ~0.17% of orders have a carrier date before the purchase (e.g. 2018-01 vs 2018-07),
+        # which would make the order appear months before it was placed.
+        Rule("change_before_purchase", F.col("change_ts") < F.col("order_purchase_ts")),
     ]
 
 

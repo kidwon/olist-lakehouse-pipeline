@@ -117,3 +117,17 @@ def test_unknown_fields_are_rescued_not_dropped(spark):
     assert good._rescued_data == '{"discount_amount":"0.5"}'
     assert "discount_amount" not in good.asDict()
     assert broken._malformed is True
+
+
+def test_status_change_before_the_purchase_is_quarantined(spark):
+    """Real Olist rows have carrier dates months before the purchase; they must not make an order exist early."""
+    rows = [
+        ("ok", "shipped", 2, dt.datetime(2018, 7, 17), dt.datetime(2018, 7, 16), None),
+        ("bad", "shipped", 2, dt.datetime(2018, 1, 26), dt.datetime(2018, 7, 16), None),
+    ]
+    df = spark.createDataFrame(
+        rows, "order_id string, order_status string, change_seq int, change_ts timestamp, order_purchase_ts timestamp, "
+              "order_delivered_customer_ts timestamp",
+    ).withColumn("_malformed", F.lit(False))
+    out = {r.order_id: r._failed_rules for r in dq.evaluate(df, dq.order_rules()).collect()}
+    assert out == {"ok": [], "bad": ["change_before_purchase"]}

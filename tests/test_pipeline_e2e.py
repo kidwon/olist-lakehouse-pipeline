@@ -135,3 +135,11 @@ def test_gold_fact_matches_silver_after_catch_up_run(run):
     assert fact.where(F.col("seller_sk").isNull()).count() == 0
     mart = spark.table(cfg.table("gold", "mart_seller_delivery_performance"))
     assert mart.agg(F.sum("items")).first()[0] == fact.where("NOT is_cancelled").count()
+
+
+def test_category_translation_joins_despite_bom_in_source_file(run):
+    """The real translation CSV starts with a UTF-8 BOM; if it leaks into the header, every English name is NULL."""
+    spark, cfg, *_ = run
+    products = spark.table(cfg.table("silver", "products"))
+    assert products.count() > 0
+    assert products.where(F.col("product_category_name_english").isNull()).count() == 0

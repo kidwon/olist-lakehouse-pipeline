@@ -70,14 +70,30 @@ reported. The end-to-end tests assert this on every run.
 | delivered before purchase | 3 | `delivered_before_purchase` | 3 |
 | new field `discount_amount` | 314 | `rescued_data` | 314 |
 
-### Tests (`uv run pytest`, 26 tests)
-- **16 unit tests:** de-duplication, forward-only CDC, SCD2 (idempotency, "missing is not
+### Tests (`uv run pytest`, 28 tests)
+- **17 unit tests:** de-duplication, forward-only CDC, SCD2 (idempotency, "missing is not
   deleted", point-in-time join), DQ rule boundaries, contract parsing, customer identity, and
   the mart's GMV definition.
-- **10 end-to-end tests:** a backfill plus 6 replayed days, with the last day poisoned at
+- **11 end-to-end tests:** a backfill plus 6 replayed days, with the last day poisoned at
   about 12% bad rows. They reconcile every anomaly, check that the gate blocks only the
   poisoned day, check that a rerun changes nothing, and check that gold catches up on the
   next run.
+
+### Results on the real data (Olist, ~100k orders)
+
+Local run: a backfill plus 10 daily batches (11 runs, about 6.5 minutes). Every run passed
+the gate; the highest bad-row ratio was 2.11%. Every injected anomaly was reported, with the
+same count as injected.
+
+The real data surfaced problems that the synthetic fixture could not, and each one is now
+handled:
+
+| Found in the real data | Size | Handling |
+|---|---|---|
+| Carrier hand-off timestamp before the purchase (e.g. purchase 2018-07, hand-off 2018-01) | 166 orders (0.17%) in the source; 47 change rows inside the replay window | New rule `change_before_purchase` quarantines them; otherwise an order would exist months before it was placed |
+| UTF-8 BOM at the start of the category translation CSV | 1 file | BOM stripped from column names; the fixture now has a BOM too, as a regression test |
+| `customer_id` is issued per order | 82,406 `customer_id`s → 79,682 people | Customer dimension per `customer_unique_id` (ADR-0007) |
+| Categories with no English translation | 13 products | English name stays NULL; the original category name is kept |
 
 ### Screenshots (Databricks Free Edition)
 <!-- add after running: docs/images/job_run.png, docs/images/dq_dashboard.png, docs/images/biz_dashboard.png -->
