@@ -1,5 +1,7 @@
 # ADR-0003: Hand-written SCD Type 2 for sellers from daily snapshots
 
+[日本語](../ja/0003-scd2-sellers.md) | **English** | [中文](../zh/0003-scd2-sellers.md)
+
 **Status:** accepted
 
 ## Context

@@ -1,5 +1,7 @@
 # ADR-0006: 明示的なデータ契約を定め、未知のフィールドは推論せず退避する
 
+**日本語** | [English](../en/0006-data-contracts-and-rescued-data.md) | [中文](../zh/0006-data-contracts-and-rescued-data.md)
+
 **ステータス:** 採用
 
 ## 背景

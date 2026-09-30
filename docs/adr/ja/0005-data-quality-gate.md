@@ -1,5 +1,7 @@
 # ADR-0005: 隔離・メトリクス・Gold 手前のゲート
 
+**日本語** | [English](../en/0005-data-quality-gate.md) | [中文](../zh/0005-data-quality-gate.md)
+
 **ステータス:** 採用
 
 ## 背景

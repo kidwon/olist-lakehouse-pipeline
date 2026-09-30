@@ -152,7 +152,7 @@ src/olist_pipeline/
   cli.py         ジョブタスクのエントリポイント（ローカル / Databricks 共通）
 tests/           単体テスト、E2E テスト、合成 Olist フィクスチャ
 resources/       Databricks Asset Bundle のジョブ定義
-docs/adr/        設計判断の記録（日本語 / 英語）
+docs/adr/        設計判断の記録（日本語 / 英語 / 中国語）
 ```
 
 ## 今後の拡張

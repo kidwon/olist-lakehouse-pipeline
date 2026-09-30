@@ -1,5 +1,7 @@
 # ADR-0001: 冪等な取り込みと重複排除
 
+**日本語** | [English](../en/0001-idempotent-ingestion-and-dedup.md) | [中文](../zh/0001-idempotent-ingestion-and-dedup.md)
+
 **ステータス:** 採用
 
 ## 背景

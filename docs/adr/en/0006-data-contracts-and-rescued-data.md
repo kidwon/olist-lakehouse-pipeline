@@ -1,5 +1,7 @@
 # ADR-0006: Explicit data contracts; unknown fields are rescued, not inferred
 
+[日本語](../ja/0006-data-contracts-and-rescued-data.md) | **English** | [中文](../zh/0006-data-contracts-and-rescued-data.md)
+
 **Status:** accepted
 
 ## Context

@@ -174,7 +174,7 @@ src/olist_pipeline/
   cli.py         job task entry point (local and Databricks)
 tests/           unit tests, e2e tests, synthetic Olist fixture
 resources/       Databricks Asset Bundle job definitions
-docs/adr/        architecture decision records (Japanese / English)
+docs/adr/        architecture decision records (Japanese / English / Chinese)
 ```
 
 ## Next steps

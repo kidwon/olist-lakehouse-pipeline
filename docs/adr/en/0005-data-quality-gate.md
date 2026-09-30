@@ -1,5 +1,7 @@
 # ADR-0005: Quarantine, metrics and a gate before gold
 
+[日本語](../ja/0005-data-quality-gate.md) | **English** | [中文](../zh/0005-data-quality-gate.md)
+
 **Status:** accepted
 
 ## Context

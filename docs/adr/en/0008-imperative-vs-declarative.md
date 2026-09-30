@@ -1,5 +1,7 @@
 # ADR-0008: Imperative Structured Streaming + MERGE rather than Lakeflow Declarative Pipelines
 
+[日本語](../ja/0008-imperative-vs-declarative.md) | **English** | [中文](../zh/0008-imperative-vs-declarative.md)
+
 **Status:** accepted
 
 ## Context

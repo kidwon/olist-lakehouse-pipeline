@@ -34,13 +34,13 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 
 | 问题 | 解法 | 设计决策 | 代码 | 测试 |
 |---|---|---|---|---|
-| **增量摄取与重复**（明细重复投递、作业重试） | 带 checkpoint 的 Auto Loader 保证每个文件只摄取一次；批内用 `row_number` 去重，跨批用只插入不更新的 MERGE 忽略已加载的行 | [ADR-0001](docs/adr/en/0001-idempotent-ingestion-and-dedup.md) | [bronze.py](src/olist_pipeline/bronze.py), [silver.py](src/olist_pipeline/silver.py) | `test_redelivered_item_is_not_counted_twice` |
-| **CDC 乱序**（较旧的状态变更后到达） | 只前进的 MERGE：只有 `change_seq` 更大时才更新 | [ADR-0002](docs/adr/en/0002-cdc-forward-only-merge.md) | `merge_cdc_forward_only` | `test_late_older_change_does_not_regress_status` |
-| **SCD Type 2**（卖家迁址后，仍按下单时的所在地统计） | 用哈希检测变更，一次 MERGE 关闭旧版本并插入新版本；事实表按下单日期做时点关联 | [ADR-0003](docs/adr/en/0003-scd2-sellers.md) | [scd2.py](src/olist_pipeline/scd2.py) | `test_fact_uses_the_seller_version_valid_on_the_order_date` |
-| **迟到数据**（算在哪一天？） | 按销售发生日归日；迟到 3 天以内通过 MERGE 回溯修正 Gold，超过 3 天进隔离区 | [ADR-0004](docs/adr/en/0004-late-data.md) | `add_lateness`, `merge_fact` | `test_late_items_are_accepted_and_dated_by_the_sale` |
-| **数据质量**（坏行去哪、谁会发现、何时停止） | 按规则隔离并记录指标；单次运行的坏行比例超过 5% 时不发布 Gold | [ADR-0005](docs/adr/en/0005-data-quality-gate.md) | [quality.py](src/olist_pipeline/quality.py), [gate.py](src/olist_pipeline/gate.py) | `test_gate_blocked_only_the_poisoned_run` |
+| **增量摄取与重复**（明细重复投递、作业重试） | 带 checkpoint 的 Auto Loader 保证每个文件只摄取一次；批内用 `row_number` 去重，跨批用只插入不更新的 MERGE 忽略已加载的行 | [ADR-0001](docs/adr/zh/0001-idempotent-ingestion-and-dedup.md) | [bronze.py](src/olist_pipeline/bronze.py), [silver.py](src/olist_pipeline/silver.py) | `test_redelivered_item_is_not_counted_twice` |
+| **CDC 乱序**（较旧的状态变更后到达） | 只前进的 MERGE：只有 `change_seq` 更大时才更新 | [ADR-0002](docs/adr/zh/0002-cdc-forward-only-merge.md) | `merge_cdc_forward_only` | `test_late_older_change_does_not_regress_status` |
+| **SCD Type 2**（卖家迁址后，仍按下单时的所在地统计） | 用哈希检测变更，一次 MERGE 关闭旧版本并插入新版本；事实表按下单日期做时点关联 | [ADR-0003](docs/adr/zh/0003-scd2-sellers.md) | [scd2.py](src/olist_pipeline/scd2.py) | `test_fact_uses_the_seller_version_valid_on_the_order_date` |
+| **迟到数据**（算在哪一天？） | 按销售发生日归日；迟到 3 天以内通过 MERGE 回溯修正 Gold，超过 3 天进隔离区 | [ADR-0004](docs/adr/zh/0004-late-data.md) | `add_lateness`, `merge_fact` | `test_late_items_are_accepted_and_dated_by_the_sale` |
+| **数据质量**（坏行去哪、谁会发现、何时停止） | 按规则隔离并记录指标；单次运行的坏行比例超过 5% 时不发布 Gold | [ADR-0005](docs/adr/zh/0005-data-quality-gate.md) | [quality.py](src/olist_pipeline/quality.py), [gate.py](src/olist_pipeline/gate.py) | `test_gate_blocked_only_the_poisoned_run` |
 
-其他决策：[数据契约与 `_rescued_data`](docs/adr/en/0006-data-contracts-and-rescued-data.md)、[客户身份归并（`customer_unique_id`）](docs/adr/en/0007-customer-identity.md)、[命令式与声明式（Lakeflow）的对比](docs/adr/en/0008-imperative-vs-declarative.md)（ADR 提供日文版和英文版）
+其他决策：[数据契约与 `_rescued_data`](docs/adr/zh/0006-data-contracts-and-rescued-data.md)、[客户身份归并（`customer_unique_id`）](docs/adr/zh/0007-customer-identity.md)、[命令式与声明式（Lakeflow）的对比](docs/adr/zh/0008-imperative-vs-declarative.md)
 
 ---
 
@@ -152,7 +152,7 @@ src/olist_pipeline/
   cli.py         作业任务入口（本地与 Databricks 共用）
 tests/           单元测试、端到端测试、合成的 Olist 测试数据
 resources/       Databricks Asset Bundle 的 Job 定义
-docs/adr/        设计决策记录（日文 / 英文）
+docs/adr/        设计决策记录（日文 / 英文 / 中文）
 ```
 
 ## 下一步

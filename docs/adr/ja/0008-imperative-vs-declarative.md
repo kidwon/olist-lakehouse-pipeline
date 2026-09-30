@@ -1,5 +1,7 @@
 # ADR-0008: Lakeflow 宣言型パイプラインではなく、命令型（Structured Streaming + MERGE）を採用する
 
+**日本語** | [English](../en/0008-imperative-vs-declarative.md) | [中文](../zh/0008-imperative-vs-declarative.md)
+
 **ステータス:** 採用
 
 ## 背景

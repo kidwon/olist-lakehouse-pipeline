@@ -1,5 +1,7 @@
 # ADR-0007: Customers are identified by `customer_unique_id`
 
+[日本語](../ja/0007-customer-identity.md) | **English** | [中文](../zh/0007-customer-identity.md)
+
 **Status:** accepted
 
 ## Context
@@ -14,4 +16,5 @@ Counting `customer_id` counts orders, and every repeat-customer metric comes out
   order.
 
 ## Consequences
+- On the real data, 82,406 `customer_id`s resolve to 79,682 people.
 - Test: `test_dim_customer_counts_people_not_customer_ids`.

@@ -1,5 +1,7 @@
 # ADR-0002: 注文 CDC は `change_seq` に基づき前進方向にのみ適用する
 
+**日本語** | [English](../en/0002-cdc-forward-only-merge.md) | [中文](../zh/0002-cdc-forward-only-merge.md)
+
 **ステータス:** 採用
 
 ## 背景

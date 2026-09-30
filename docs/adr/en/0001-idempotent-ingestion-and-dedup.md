@@ -1,5 +1,7 @@
 # ADR-0001: Idempotent ingestion and de-duplication
 
+[日本語](../ja/0001-idempotent-ingestion-and-dedup.md) | **English** | [中文](../zh/0001-idempotent-ingestion-and-dedup.md)
+
 **Status:** accepted
 
 ## Context

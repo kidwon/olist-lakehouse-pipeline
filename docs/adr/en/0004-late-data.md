@@ -1,5 +1,7 @@
 # ADR-0004: Late data is dated by the sale, within a 3-day tolerance
 
+[日本語](../ja/0004-late-data.md) | **English** | [中文](../zh/0004-late-data.md)
+
 **Status:** accepted
 
 ## Context

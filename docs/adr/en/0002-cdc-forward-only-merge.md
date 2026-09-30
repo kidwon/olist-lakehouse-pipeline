@@ -1,5 +1,7 @@
 # ADR-0002: Apply order CDC forward-only by `change_seq`
 
+[日本語](../ja/0002-cdc-forward-only-merge.md) | **English** | [中文](../zh/0002-cdc-forward-only-merge.md)
+
 **Status:** accepted
 
 ## Context

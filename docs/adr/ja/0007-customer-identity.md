@@ -1,5 +1,7 @@
 # ADR-0007: 顧客は `customer_unique_id` で識別する
 
+**日本語** | [English](../en/0007-customer-identity.md) | [中文](../zh/0007-customer-identity.md)
+
 **ステータス:** 採用
 
 ## 背景
@@ -11,4 +13,5 @@ Olist では `customer_id` が**注文ごと**に発行されます。実在の�
 - ファクトテーブルには、注文の顧客レコードを経由して解決した `customer_unique_id` を持たせます。
 
 ## 影響
+- 実データでは、82,406 件の `customer_id` が 79,682 人に集約されます。
 - テスト: `test_dim_customer_counts_people_not_customer_ids`。
