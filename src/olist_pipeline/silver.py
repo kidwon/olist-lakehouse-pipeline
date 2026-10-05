@@ -168,6 +168,29 @@ def orders(spark: SparkSession, cfg: Config) -> None:
     _stream(spark, cfg, "orders_cdc", "orders", fn)
 
 
+def order_changes(spark: SparkSession, cfg: Config) -> None:
+    """Append-only log of every validated order status change (ADR-0009).
+
+    `silver.orders` keeps only the current state; this table keeps the path that led to it,
+    which the fulfillment fact needs (e.g. when an order was cancelled) and which serves as an
+    audit trail: a change, once written, is never updated.
+
+    It runs as its own stream with its own checkpoint, so a new deployment backfills the whole
+    history from bronze on its first run. Rules are re-evaluated only to filter: quarantine and
+    metrics are recorded once, by `orders`, so nothing is counted twice.
+    """
+    cols = _contract_cols(ORDERS_CDC)
+    rules = dq.order_rules()
+    keys = ["order_id", "change_seq"]
+
+    def fn(mb: DataFrame, _: int) -> None:
+        good, _bad = dq.split(dq.evaluate(mb, rules))
+        rows = keep_first(good, keys, [F.col("_ingested_at")]).select(*cols, *LINEAGE)
+        merge_insert_new(mb.sparkSession, cfg.table("silver", "order_changes"), rows, keys)
+
+    _stream(spark, cfg, "orders_cdc", "order_changes", fn)
+
+
 def customers(spark: SparkSession, cfg: Config) -> None:
     cols = _contract_cols(CUSTOMERS)
     rules = dq.customer_rules()
@@ -199,5 +222,6 @@ def run(spark: SparkSession, cfg: Config) -> None:
     products(spark, cfg)  # order_items checks product_id against it
     order_items(spark, cfg)
     orders(spark, cfg)
+    order_changes(spark, cfg)
     customers(spark, cfg)
     reviews(spark, cfg)

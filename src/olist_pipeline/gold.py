@@ -137,14 +137,112 @@ def build_mart_seller_delivery(fact: DataFrame, reviews: DataFrame, dim_seller: 
     )
 
 
+FULFILLMENT_STAGES = [
+    # (duration column, from milestone, to milestone)
+    ("hours_to_approve", "purchase_ts", "approved_ts"),
+    ("hours_to_ship", "approved_ts", "shipped_ts"),
+    ("hours_in_transit", "shipped_ts", "delivered_ts"),
+    ("hours_total", "purchase_ts", "delivered_ts"),
+]
+
+
+def _hours(start: str, end: str):
+    return F.round((F.unix_timestamp(end) - F.unix_timestamp(start)) / 3600, 2)
+
+
+def _date_key(ts: str):
+    return F.date_format(ts, "yyyyMMdd").cast("int")
+
+
+def build_fact_order_fulfillment(changes: DataFrame, items: DataFrame, customers: DataFrame) -> DataFrame:
+    """Accumulating snapshot: one row per order, updated in place as milestones arrive (ADR-0009).
+
+    Milestone times come from the order's latest change (an after-image carries every timestamp
+    known so far); the end of an unfulfilled order is the first cancelled/unavailable change.
+    A stage duration that comes out negative (inconsistent source timestamps) is set to NULL and
+    the order is flagged; the raw timestamps are kept as delivered.
+    """
+    latest = (
+        changes.withColumn("_rn", F.row_number().over(Window.partitionBy("order_id").orderBy(F.col("change_seq").desc())))
+        .where("_rn = 1")
+        .select(
+            "order_id",
+            "customer_id",
+            F.col("order_status").alias("current_status"),
+            F.col("order_purchase_ts").alias("purchase_ts"),
+            F.col("order_approved_ts").alias("approved_ts"),
+            F.col("order_delivered_carrier_ts").alias("shipped_ts"),
+            F.col("order_delivered_customer_ts").alias("delivered_ts"),
+            F.col("order_estimated_delivery_ts").alias("estimated_ts"),
+            F.col("change_seq").alias("last_change_seq"),
+        )
+    )
+    ended = (
+        changes.where(F.col("order_status").isin(NOT_SOLD))
+        .withColumn("_rn", F.row_number().over(Window.partitionBy("order_id").orderBy("change_ts", "change_seq")))
+        .where("_rn = 1")
+        .select("order_id", F.col("change_ts").alias("ended_ts"), F.col("order_status").alias("end_reason"))
+    )
+    lines = items.groupBy("order_id").agg(F.count("*").alias("item_count"), F.sum("price").alias("order_value"))
+    who = customers.select("customer_id", "customer_unique_id")
+
+    f = latest.join(ended, "order_id", "left").join(lines, "order_id", "left").join(who, "customer_id", "left")
+
+    raw = {name: _hours(a, b) for name, a, b in FULFILLMENT_STAGES}
+    inconsistent = F.lit(False)
+    for expr in raw.values():
+        inconsistent = inconsistent | F.coalesce(expr < 0, F.lit(False))
+
+    delivered = F.col("delivered_ts").isNotNull()
+    # The estimate is a date: delivering any time that day is on time, so lateness counts from its end.
+    f = f.withColumn("_estimated_day_end", F.date_add(F.to_date("estimated_ts"), 1).cast("timestamp"))
+    out = f.select(
+        "order_id",
+        "customer_unique_id",
+        "current_status",
+        "end_reason",
+        _date_key("purchase_ts").alias("purchase_date_key"),
+        _date_key("approved_ts").alias("approved_date_key"),
+        _date_key("shipped_ts").alias("shipped_date_key"),
+        _date_key("delivered_ts").alias("delivered_date_key"),
+        _date_key("estimated_ts").alias("estimated_date_key"),
+        "purchase_ts", "approved_ts", "shipped_ts", "delivered_ts", "estimated_ts", "ended_ts",
+        *[F.when(expr >= 0, expr).alias(name) for name, expr in raw.items()],
+        F.when(delivered, _hours("_estimated_day_end", "delivered_ts")).alias("hours_late"),
+        F.when(delivered, F.to_date("delivered_ts") <= F.to_date("estimated_ts")).alias("is_on_time"),
+        inconsistent.alias("has_inconsistent_milestones"),
+        F.coalesce("item_count", F.lit(0)).cast("int").alias("item_count"),
+        "order_value",
+        "last_change_seq",
+    )
+    content = [c for c in out.columns if c != "order_id"]
+    return out.withColumn("row_hash", F.sha2(F.to_json(F.struct(*content)), 256))
+
+
+def inconsistent_milestone_metric(fact: DataFrame, run_id: str) -> DataFrame:
+    """Warn-level metric for the dashboard; the gate only reads `__all__`, so it never blocks a run."""
+    return fact.agg(
+        F.count_if("has_inconsistent_milestones").alias("failed_rows"), F.count("*").alias("total_rows")
+    ).select(
+        F.lit(run_id).alias("run_id"),
+        F.lit("fact_order_fulfillment").alias("table_name"),
+        F.lit(None).cast("date").alias("batch_date"),
+        F.lit("inconsistent_milestones").alias("rule"),
+        F.lit("warn").alias("severity"),
+        F.col("failed_rows").cast("long"),
+        F.col("total_rows").cast("long"),
+        F.current_timestamp().alias("measured_at"),
+    )
+
+
 # ---------------------------------------------------------------------------
-def merge_fact(spark: SparkSession, name: str, source: DataFrame) -> None:
+def merge_fact(spark: SparkSession, name: str, source: DataFrame, keys: list[str] = FACT_KEYS) -> None:
     if not spark.catalog.tableExists(name):
         source.limit(0).withColumn("_updated_at", F.current_timestamp()).write.format("delta").saveAsTable(name)
     src = source.withColumn("_updated_at", F.current_timestamp())
     (
         DeltaTable.forName(spark, name).alias("t")
-        .merge(src.alias("s"), " AND ".join(f"t.{k} = s.{k}" for k in FACT_KEYS))
+        .merge(src.alias("s"), " AND ".join(f"t.{k} = s.{k}" for k in keys))
         .whenMatchedUpdateAll(condition="t.row_hash <> s.row_hash")
         .whenNotMatchedInsertAll()
         .execute()
@@ -162,6 +260,14 @@ def run(spark: SparkSession, cfg: Config) -> None:
 
     fact = build_fact_order_item(silver["order_items"], silver["orders"], silver["customers"], silver["seller_history"])
     merge_fact(spark, cfg.table("gold", "fact_order_item"), fact)
+
+    fulfillment = build_fact_order_fulfillment(
+        spark.table(cfg.table("silver", "order_changes")), silver["order_items"], silver["customers"]
+    )
+    merge_fact(spark, cfg.table("gold", "fact_order_fulfillment"), fulfillment, ["order_id"])
+    inconsistent_milestone_metric(spark.table(cfg.table("gold", "fact_order_fulfillment")), cfg.run_id).write.format(
+        "delta"
+    ).mode("append").saveAsTable(cfg.table("ops", "dq_metrics"))
 
 
 def run_mart(spark: SparkSession, cfg: Config) -> None:

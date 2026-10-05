@@ -30,7 +30,7 @@ def run(spark, tmp_path_factory):
     def count(t):
         return spark.table(cfg.table(*t.split("."))).count()
 
-    before = {t: count(t) for t in ["silver.order_items", "silver.orders", "silver.seller_history"]}
+    before = {t: count(t) for t in ["silver.order_items", "silver.orders", "silver.order_changes", "silver.seller_history"]}
     # A second run with no new files: must change nothing in silver.
     cli.process(spark, replace(cfg, run_id="rerun"))
     after = {t: count(t) for t in before}
@@ -143,3 +143,34 @@ def test_category_translation_joins_despite_bom_in_source_file(run):
     products = spark.table(cfg.table("silver", "products"))
     assert products.count() > 0
     assert products.where(F.col("product_category_name_english").isNull()).count() == 0
+
+
+def test_change_log_holds_every_valid_change_exactly_once(run):
+    """The append-only log behind the fulfillment fact: every valid change, duplicates and invalid ones excluded."""
+    spark, cfg, *_ = run
+    log = spark.table(cfg.table("silver", "order_changes")).select("order_id", "change_seq")
+    expected = (
+        spark.read.parquet(f"{cfg.staging_path}/orders_cdc")
+        .where((F.col("_delivery_date") <= cfg.last_replay_date) & (F.coalesce(F.col("_anomaly"), F.lit("")) != "invalid_delivery_ts"))
+        .select("order_id", "change_seq").distinct()
+    )
+    assert log.count() == log.distinct().count() == expected.count()
+    assert expected.exceptAll(log).count() == 0
+    # The current state is always the latest change in the log.
+    current = spark.table(cfg.table("silver", "orders")).select("order_id", "change_seq")
+    assert current.exceptAll(log).count() == 0
+
+
+def test_fulfillment_has_one_row_per_order_with_its_end(run):
+    spark, cfg, *_ = run
+    fact = spark.table(cfg.table("gold", "fact_order_fulfillment"))
+    orders = spark.table(cfg.table("silver", "orders"))
+    assert fact.count() == fact.select("order_id").distinct().count() == orders.count()
+    cancelled = orders.where("order_status = 'canceled'").count()
+    assert cancelled > 0
+    assert fact.where("end_reason = 'canceled' AND ended_ts IS NOT NULL").count() == cancelled
+    # The synthetic fixture has consistent timestamps, so nothing may be flagged.
+    assert fact.where("has_inconsistent_milestones").count() == 0
+    assert fact.where("hours_total < 0 OR hours_to_ship < 0").count() == 0
+    metric = spark.table(cfg.table("ops", "dq_metrics")).where("rule = 'inconsistent_milestones'")
+    assert metric.count() > 0 and metric.agg(F.max("failed_rows")).first()[0] == 0

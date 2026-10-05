@@ -67,6 +67,15 @@ DATASETS = {
         JOIN {C}.olist_gold.dim_seller s ON s.seller_sk = f.seller_sk
         WHERE NOT f.is_cancelled
         GROUP BY ALL""",
+    "biz_fulfillment": f"""
+        SELECT to_date(date_format(purchase_ts, 'yyyy-MM-01')) AS month, stage, ROUND(AVG(hours), 1) AS avg_hours
+        FROM {C}.olist_gold.fact_order_fulfillment
+        LATERAL VIEW STACK(3,
+            '1 purchase → approved', hours_to_approve,
+            '2 approved → carrier', hours_to_ship,
+            '3 carrier → customer', hours_in_transit) s AS stage, hours
+        WHERE purchase_ts >= TIMESTAMP'2017-01-01' AND hours IS NOT NULL
+        GROUP BY ALL""",
     "biz_top": f"""
         SELECT seller_id, seller_state,
                ROUND(SUM(gmv), 0) AS gmv, SUM(orders) AS orders,
@@ -179,7 +188,8 @@ business_page = [
             "## 業務指標 / Business",
             "Built from `olist_gold`. Seller location is taken at order time from the SCD2 `dim_seller`, "
             "so a seller who moved keeps past sales in the old state. "
-            "2018-06 holds only the 10 replayed days, so its month is partial."), 0, 0, 6, 2),
+            "2018-06 holds only the 10 replayed days, so its month is partial, and its stage times are "
+            "biased low: only orders that finished quickly have a completed stage yet (right-censoring)."), 0, 0, 6, 2),
     at(counter("kpi_gmv", "kpi_biz", "gmv_millions", "GMV（百万 BRL / BRL millions）",
                {"type": "number-plain", "abbreviation": "none", "decimalPlaces": {"type": "exact", "places": 2}}), 0, 2, 2, 3),
     at(counter("kpi_orders", "kpi_biz", "orders", "注文数 / Orders",
@@ -191,6 +201,10 @@ business_page = [
              ("month", "月", "temporal"), ("on_time_rate", "定時配達率", "quantitative", PCT)), 3, 5, 3, 6),
     at(chart("biz_state_bar", "bar", "biz_state", "注文時点のセラー州別 GMV / GMV by seller state at order time",
              ("seller_state", "州", "categorical", None, "y-reversed"), ("gmv", "GMV", "quantitative")), 0, 11, 3, 7),
+    at(chart("biz_fulfillment_line", "line", "biz_fulfillment",
+             "履約の各段階の平均時間（時間）/ Average hours per fulfillment stage (fact_order_fulfillment)",
+             ("month", "月", "temporal"), ("avg_hours", "平均時間", "quantitative"),
+             ("stage", "段階", "categorical")), 0, 18, 6, 6),
     at(table("biz_top_table", "biz_top", "GMV 上位セラー / Top sellers",
              [("seller_id", "セラー"), ("seller_state", "州"), ("gmv", "GMV"), ("orders", "注文"),
               ("on_time_rate", "定時率"), ("avg_review_score", "評価")]), 3, 11, 3, 7),

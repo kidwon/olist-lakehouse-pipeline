@@ -100,6 +100,20 @@
       ]
     },
     {
+      "name": "biz_fulfillment",
+      "displayName": "biz_fulfillment",
+      "queryLines": [
+        "SELECT to_date(date_format(purchase_ts, 'yyyy-MM-01')) AS month, stage, ROUND(AVG(hours), 1) AS avg_hours\n",
+        "FROM workspace.olist_gold.fact_order_fulfillment\n",
+        "LATERAL VIEW STACK(3,\n",
+        "'1 purchase → approved', hours_to_approve,\n",
+        "'2 approved → carrier', hours_to_ship,\n",
+        "'3 carrier → customer', hours_in_transit) s AS stage, hours\n",
+        "WHERE purchase_ts >= TIMESTAMP'2017-01-01' AND hours IS NOT NULL\n",
+        "GROUP BY ALL\n"
+      ]
+    },
+    {
       "name": "biz_top",
       "displayName": "biz_top",
       "queryLines": [
@@ -628,7 +642,7 @@
             "multilineTextboxSpec": {
               "lines": [
                 "## 業務指標 / Business\n\n",
-                "Built from `olist_gold`. Seller location is taken at order time from the SCD2 `dim_seller`, so a seller who moved keeps past sales in the old state. 2018-06 holds only the 10 replayed days, so its month is partial.\n\n"
+                "Built from `olist_gold`. Seller location is taken at order time from the SCD2 `dim_seller`, so a seller who moved keeps past sales in the old state. 2018-06 holds only the 10 replayed days, so its month is partial, and its stage times are biased low: only orders that finished quickly have a completed stage yet (right-censoring).\n\n"
               ]
             }
           },
@@ -952,6 +966,71 @@
             "y": 11,
             "width": 3,
             "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "biz_fulfillment_line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "biz_fulfillment",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "avg_hours",
+                      "expression": "`avg_hours`"
+                    },
+                    {
+                      "name": "stage",
+                      "expression": "`stage`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "displayName": "月",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "avg_hours",
+                  "displayName": "平均時間",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "stage",
+                  "displayName": "段階",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "履約の各段階の平均時間（時間）/ Average hours per fulfillment stage (fact_order_fulfillment)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 6,
+            "height": 6
           }
         },
         {

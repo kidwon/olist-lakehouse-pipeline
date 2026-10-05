@@ -40,7 +40,7 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 | **遅延データ**（どの日に計上するか） | 販売日で計上し、3日以内なら Gold を MERGE で遡って修正。3日超は隔離 | [ADR-0004](docs/adr/ja/0004-late-data.md) | `add_lateness`, `merge_fact` | `test_late_items_are_accepted_and_dated_by_the_sale` |
 | **データ品質**（不正な行はどこへ行き、誰が気付き、いつ止めるか） | ルールごとに隔離しメトリクスを記録。実行単位で不正率 5% を超えたら Gold を公開しない | [ADR-0005](docs/adr/ja/0005-data-quality-gate.md) | [quality.py](src/olist_pipeline/quality.py), [gate.py](src/olist_pipeline/gate.py) | `test_gate_blocked_only_the_poisoned_run` |
 
-その他の判断: [データ契約と `_rescued_data`](docs/adr/ja/0006-data-contracts-and-rescued-data.md)、[顧客の名寄せ（`customer_unique_id`）](docs/adr/ja/0007-customer-identity.md)、[命令型と宣言型（Lakeflow）の比較](docs/adr/ja/0008-imperative-vs-declarative.md)
+その他の判断: [注文フルフィルメントの累積スナップショット](docs/adr/ja/0009-accumulating-snapshot-fulfillment.md)、[データ契約と `_rescued_data`](docs/adr/ja/0006-data-contracts-and-rescued-data.md)、[顧客の名寄せ（`customer_unique_id`）](docs/adr/ja/0007-customer-identity.md)、[命令型と宣言型（Lakeflow）の比較](docs/adr/ja/0008-imperative-vs-declarative.md)
 
 ---
 
@@ -61,9 +61,9 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 | 購入前の配達日時 | 3 | `delivered_before_purchase` | 3 |
 | 新しいフィールド `discount_amount` | 314 | `rescued_data` | 314 |
 
-### テスト（`uv run pytest`、28件）
-- **単体テスト 17件:** 重複排除、CDC の前進方向マージ、SCD2（冪等性、欠落は削除ではないこと、時点結合）、DQ ルールの境界値、契約パース、顧客の名寄せ、マートの GMV 定義
-- **E2E テスト 11件:** バックフィル＋6日分をリプレイ（最終日は不正率約12%で汚染）。すべての異常の突き合わせ、ゲートが汚染日だけを止めること、再実行で何も変わらないこと、後続の実行で Gold が追い付くことを検証
+### テスト（`uv run pytest`、40件）
+- **単体テスト 27件:** 重複排除、CDC の前進方向マージ、SCD2（冪等性、欠落は削除ではないこと、時点結合）、DQ ルールの境界値、契約パース、顧客の名寄せ、マートの GMV 定義
+- **E2E テスト 13件:** バックフィル＋6日分をリプレイ（最終日は不正率約12%で汚染）。すべての異常の突き合わせ、ゲートが汚染日だけを止めること、再実行で何も変わらないこと、後続の実行で Gold が追い付くことを検証
 
 ### 実データ（Olist 約10万注文）での実行結果
 
@@ -77,6 +77,7 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 | カテゴリ翻訳 CSV の先頭に UTF-8 BOM がある | 1 ファイル | 列名から BOM を除去し、フィクスチャにも BOM を入れて回帰テスト化 |
 | `customer_id` が注文ごとに発行される | 82,406 件の `customer_id` → 79,682 人 | `customer_unique_id` 単位の顧客ディメンション（ADR-0007） |
 | 英語訳のないカテゴリ | 13 商品 | 英語名は NULL のまま保持（元のカテゴリ名は残す） |
+| 注文のマイルストーンの順序が逆（支払い承認より前に引き渡し 559、購入より前に引き渡し 46、引き渡しより前に配達 23） | 628 注文（0.76%） | 累積スナップショットで負の所要時間を NULL にしてフラグを付け、警告メトリクスとして計上（ADR-0009） |
 
 ### スクリーンショット（Databricks Free Edition）
 
@@ -100,7 +101,7 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 
 ## ウォークスルー・ノートブック（日本語 / English / 中文）
 
-[`notebooks/walkthrough/`](notebooks/walkthrough/) には、レイヤーごとの解説ノートブックが6本あります。各ノートブックは本番コードの関数をそのままインポートし、手書きの数行のデータで動かします。入力を変えて再実行すれば挙動を確認でき、最後に「やってみよう」と「面接では」の節があります。CI で毎回実行しているため、解説とコードが食い違うことはありません。
+[`notebooks/walkthrough/`](notebooks/walkthrough/) には、レイヤーごとの解説ノートブックが7本あります。各ノートブックは本番コードの関数をそのままインポートし、手書きの数行のデータで動かします。入力を変えて再実行すれば挙動を確認でき、最後に「やってみよう」と「面接では」の節があります。CI で毎回実行しているため、解説とコードが食い違うことはありません。
 
 | ノートブック | 内容 |
 |---|---|
@@ -111,6 +112,7 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 | [`04_scd2`](notebooks/walkthrough/04_scd2.py) | セラーの SCD2 とポイントインタイム結合 |
 | [`05_quality_gate`](notebooks/walkthrough/05_quality_gate.py) | ルール、隔離、メトリクス、ゲート |
 | [`06_gold`](notebooks/walkthrough/06_gold.py) | スタースキーマ、顧客の名寄せ、GMV の定義 |
+| [`07_fulfillment`](notebooks/walkthrough/07_fulfillment.py) | 累積スナップショット、右側打ち切り |
 
 ---
 
@@ -121,9 +123,11 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 | Bronze | `olist_bronze.{orders_cdc, order_items, customers, reviews, sellers, products}` | 契約でパースした行、元の行、`_rescued_data`、取り込みメタデータ |
 | Silver | `olist_silver.orders` | 注文ごとの最新状態（CDC 適用後） |
 | Silver | `olist_silver.order_items` | 重複排除済みの明細。`event_date` と `arrival_lag_days` を持つ |
+| Silver | `olist_silver.order_changes` | 検証済みの注文ステータス変更の追記専用ログ（監査証跡） |
 | Silver | `olist_silver.seller_history` | セラーの SCD2 履歴 |
 | Silver | `olist_silver.{customers, reviews, products}` | 検証済みのマスタとレビュー |
 | Gold | `olist_gold.fact_order_item` | 粒度: 注文明細。注文時点のセラー（`seller_sk`）を持つ |
+| Gold | `olist_gold.fact_order_fulfillment` | 累積スナップショット: 1注文1行、各マイルストーンと段階ごとの所要時間 |
 | Gold | `olist_gold.dim_{date, customer, product, seller}` | ディメンション（顧客は `customer_unique_id` 単位） |
 | Gold | `olist_gold.mart_seller_delivery_performance` | セラー × 月: GMV、定時配達率、レビュー平均 |
 | Ops | `olist_ops.{dq_metrics, quarantine, dq_gate_log, replay_manifest}` | 品質メトリクス、隔離、ゲート判定、リプレイ計画（正解データ） |
@@ -172,7 +176,6 @@ docs/adr/        設計判断の記録（日本語 / 英語 / 中国語）
 ```
 
 ## 今後の拡張
-- 注文のライフサイクルを表す累積スナップショット型ファクト（`fact_order_status_history`）
 - Change Data Feed を使い、Gold の MERGE 元を変更キーだけに絞る
 - 同じ仕様を Lakeflow Declarative Pipelines で実装し、比較する
 

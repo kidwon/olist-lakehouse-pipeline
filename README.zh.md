@@ -40,7 +40,7 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 | **迟到数据**（算在哪一天？） | 按销售发生日归日；迟到 3 天以内通过 MERGE 回溯修正 Gold，超过 3 天进隔离区 | [ADR-0004](docs/adr/zh/0004-late-data.md) | `add_lateness`, `merge_fact` | `test_late_items_are_accepted_and_dated_by_the_sale` |
 | **数据质量**（坏行去哪、谁会发现、何时停止） | 按规则隔离并记录指标；单次运行的坏行比例超过 5% 时不发布 Gold | [ADR-0005](docs/adr/zh/0005-data-quality-gate.md) | [quality.py](src/olist_pipeline/quality.py), [gate.py](src/olist_pipeline/gate.py) | `test_gate_blocked_only_the_poisoned_run` |
 
-其他决策：[数据契约与 `_rescued_data`](docs/adr/zh/0006-data-contracts-and-rescued-data.md)、[客户身份归并（`customer_unique_id`）](docs/adr/zh/0007-customer-identity.md)、[命令式与声明式（Lakeflow）的对比](docs/adr/zh/0008-imperative-vs-declarative.md)
+其他决策：[订单履约的累积快照](docs/adr/zh/0009-accumulating-snapshot-fulfillment.md)、[数据契约与 `_rescued_data`](docs/adr/zh/0006-data-contracts-and-rescued-data.md)、[客户身份归并（`customer_unique_id`）](docs/adr/zh/0007-customer-identity.md)、[命令式与声明式（Lakeflow）的对比](docs/adr/zh/0008-imperative-vs-declarative.md)
 
 ---
 
@@ -61,9 +61,9 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 | 配送时间早于下单时间 | 3 | `delivered_before_purchase` | 3 |
 | 新字段 `discount_amount` | 314 | `rescued_data` | 314 |
 
-### 测试（`uv run pytest`，共 28 个）
-- **17 个单元测试**：去重、只前进的 CDC、SCD2（幂等、快照中缺失不等于删除、时点关联）、质量规则边界值、契约解析、客户身份归并、mart 的 GMV 口径。
-- **11 个端到端测试**：回填加回放 6 天，最后一天注入约 12% 的坏行。测试核对每一类异常，检查闸门只拦下被污染的那天、重跑不产生任何变化、下一次运行时 Gold 能追上。
+### 测试（`uv run pytest`，共 40 个）
+- **27 个单元测试**：去重、只前进的 CDC、SCD2（幂等、快照中缺失不等于删除、时点关联）、质量规则边界值、契约解析、客户身份归并、mart 的 GMV 口径。
+- **13 个端到端测试**：回填加回放 6 天，最后一天注入约 12% 的坏行。测试核对每一类异常，检查闸门只拦下被污染的那天、重跑不产生任何变化、下一次运行时 Gold 能追上。
 
 ### 真实数据（Olist，约 10 万订单）的运行结果
 
@@ -77,6 +77,7 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 | 品类翻译 CSV 开头有 UTF-8 BOM | 1 个文件 | 读取时去掉列名中的 BOM；测试数据里也加了 BOM，作为回归测试 |
 | `customer_id` 每个订单生成一个 | 82,406 个 `customer_id` → 79,682 人 | 按 `customer_unique_id` 建客户维度（ADR-0007） |
 | 没有英文翻译的品类 | 13 个商品 | 英文名保留为 NULL，保留原品类名 |
+| 订单各阶段顺序颠倒（付款审核前就交给承运商 559、下单前就交给承运商 46、交接前就送达 23） | 628 个订单（0.76%） | 累积快照把负的时长设为 NULL 并打上标记，计入警告指标（ADR-0009） |
 
 ### 截图（Databricks Free Edition）
 
@@ -100,7 +101,7 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 
 ## 讲解 Notebook（日本語 / English / 中文）
 
-[`notebooks/walkthrough/`](notebooks/walkthrough/) 里有 6 个按层讲解的 notebook。每个都直接导入生产代码的函数，在几行手写数据上运行：改一下输入、重跑，就能看到行为。每个 notebook 最后都有"自己试试"和"面试时怎么说"。CI 每次都会运行全部 notebook，所以讲解不会和代码脱节。
+[`notebooks/walkthrough/`](notebooks/walkthrough/) 里有 7 个按层讲解的 notebook。每个都直接导入生产代码的函数，在几行手写数据上运行：改一下输入、重跑，就能看到行为。每个 notebook 最后都有"自己试试"和"面试时怎么说"。CI 每次都会运行全部 notebook，所以讲解不会和代码脱节。
 
 | Notebook | 内容 |
 |---|---|
@@ -111,6 +112,7 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 | [`04_scd2`](notebooks/walkthrough/04_scd2.py) | 卖家 SCD2 与时点关联 |
 | [`05_quality_gate`](notebooks/walkthrough/05_quality_gate.py) | 规则、隔离、指标与闸门 |
 | [`06_gold`](notebooks/walkthrough/06_gold.py) | 星型模型、客户身份、GMV 口径 |
+| [`07_fulfillment`](notebooks/walkthrough/07_fulfillment.py) | 累积快照、右删失 |
 
 ---
 
@@ -121,9 +123,11 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 | Bronze | `olist_bronze.{orders_cdc, order_items, customers, reviews, sellers, products}` | 按契约解析的行、原始行、`_rescued_data`、摄取元数据 |
 | Silver | `olist_silver.orders` | 每个订单应用 CDC 后的最新状态 |
 | Silver | `olist_silver.order_items` | 去重后的明细，带 `event_date` 和 `arrival_lag_days` |
+| Silver | `olist_silver.order_changes` | 校验通过的订单状态变更的只追加日志（审计记录） |
 | Silver | `olist_silver.seller_history` | 卖家的 SCD2 历史 |
 | Silver | `olist_silver.{customers, reviews, products}` | 已校验的主数据和评论 |
 | Gold | `olist_gold.fact_order_item` | 粒度：订单明细；带下单时点的卖家版本 `seller_sk` |
+| Gold | `olist_gold.fact_order_fulfillment` | 累积快照：每个订单一行，包含各阶段时间和每个阶段的耗时 |
 | Gold | `olist_gold.dim_{date, customer, product, seller}` | 维度表；客户按 `customer_unique_id` 归并 |
 | Gold | `olist_gold.mart_seller_delivery_performance` | 卖家 × 月：GMV、准时交付率、平均评分 |
 | Ops | `olist_ops.{dq_metrics, quarantine, dq_gate_log, replay_manifest}` | 质量指标、隔离区、闸门判定、回放计划（标准答案） |
@@ -172,7 +176,6 @@ docs/adr/        设计决策记录（日文 / 英文 / 中文）
 ```
 
 ## 下一步
-- 表示订单生命周期的累积快照事实表（`fact_order_status_history`）
 - 用 Change Data Feed 把 Gold MERGE 的数据源限定为有变更的键
 - 用 Lakeflow Declarative Pipelines 实现同一套规格，并做对比
 
