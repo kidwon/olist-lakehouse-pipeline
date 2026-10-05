@@ -11,3 +11,10 @@ data/
 spark-warehouse/
 metastore_db/
 derby.log
+
+# editor: share project-level VS Code config, keep personal settings out
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
