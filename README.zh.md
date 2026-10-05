@@ -98,6 +98,22 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 
 ---
 
+## 讲解 Notebook（日本語 / English / 中文）
+
+[`notebooks/walkthrough/`](notebooks/walkthrough/) 里有 6 个按层讲解的 notebook。每个都直接导入生产代码的函数，在几行手写数据上运行：改一下输入、重跑，就能看到行为。每个 notebook 最后都有"自己试试"和"面试时怎么说"。CI 每次都会运行全部 notebook，所以讲解不会和代码脱节。
+
+| Notebook | 内容 |
+|---|---|
+| [`00_overview`](notebooks/walkthrough/00_overview.py) | 总览与代码地图 |
+| [`01_replay`](notebooks/walkthrough/01_replay.py) | 静态数据变成每日数据流，注入异常 |
+| [`02_bronze_contracts`](notebooks/walkthrough/02_bronze_contracts.py) | 数据契约与 `_rescued_data` |
+| [`03_silver_dedup_cdc`](notebooks/walkthrough/03_silver_dedup_cdc.py) | 去重与只前进的 CDC |
+| [`04_scd2`](notebooks/walkthrough/04_scd2.py) | 卖家 SCD2 与时点关联 |
+| [`05_quality_gate`](notebooks/walkthrough/05_quality_gate.py) | 规则、隔离、指标与闸门 |
+| [`06_gold`](notebooks/walkthrough/06_gold.py) | 星型模型、客户身份、GMV 口径 |
+
+---
+
 ## 表清单
 
 | 层 | 表 | 内容 |

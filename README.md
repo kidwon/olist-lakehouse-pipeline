@@ -98,6 +98,22 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 
 ---
 
+## ウォークスルー・ノートブック（日本語 / English / 中文）
+
+[`notebooks/walkthrough/`](notebooks/walkthrough/) には、レイヤーごとの解説ノートブックが6本あります。各ノートブックは本番コードの関数をそのままインポートし、手書きの数行のデータで動かします。入力を変えて再実行すれば挙動を確認でき、最後に「やってみよう」と「面接では」の節があります。CI で毎回実行しているため、解説とコードが食い違うことはありません。
+
+| ノートブック | 内容 |
+|---|---|
+| [`00_overview`](notebooks/walkthrough/00_overview.py) | 全体像とコードマップ |
+| [`01_replay`](notebooks/walkthrough/01_replay.py) | 静的データから日次フィードへ、異常の注入 |
+| [`02_bronze_contracts`](notebooks/walkthrough/02_bronze_contracts.py) | データ契約と `_rescued_data` |
+| [`03_silver_dedup_cdc`](notebooks/walkthrough/03_silver_dedup_cdc.py) | 重複排除と前進のみの CDC |
+| [`04_scd2`](notebooks/walkthrough/04_scd2.py) | セラーの SCD2 とポイントインタイム結合 |
+| [`05_quality_gate`](notebooks/walkthrough/05_quality_gate.py) | ルール、隔離、メトリクス、ゲート |
+| [`06_gold`](notebooks/walkthrough/06_gold.py) | スタースキーマ、顧客の名寄せ、GMV の定義 |
+
+---
+
 ## テーブル一覧
 
 | レイヤー | テーブル | 内容 |

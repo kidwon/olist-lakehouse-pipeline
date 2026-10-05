@@ -18,5 +18,7 @@ jobs:
         run: uv sync --python 3.12
       - name: Unit + end-to-end tests (local Spark + Delta, synthetic Olist fixture)
         run: uv run pytest -v
+      - name: Walkthrough notebooks run against the current code
+        run: for nb in notebooks/walkthrough/0*.py; do echo "== $nb"; uv run python "$nb" > /dev/null || exit 1; done
       - name: Build wheel (the artifact the Databricks bundle deploys)
         run: uv build --wheel

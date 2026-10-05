@@ -120,6 +120,25 @@ state comes from the SCD2 `dim_seller` as of the order date. The dashboard is ge
 
 ---
 
+## Walkthrough notebooks (日本語 / English / 中文)
+
+[`notebooks/walkthrough/`](notebooks/walkthrough/) holds six notebooks, one per layer. Each imports
+the production functions directly and runs them on a few hand-written rows: change an input,
+rerun, see the behaviour. Each ends with "Try it yourself" and "In the interview". CI runs every
+notebook, so the explanations cannot drift from the code.
+
+| Notebook | Topic |
+|---|---|
+| [`00_overview`](notebooks/walkthrough/00_overview.py) | Architecture and code map |
+| [`01_replay`](notebooks/walkthrough/01_replay.py) | Static data to a daily feed; anomaly injection |
+| [`02_bronze_contracts`](notebooks/walkthrough/02_bronze_contracts.py) | Data contracts and `_rescued_data` |
+| [`03_silver_dedup_cdc`](notebooks/walkthrough/03_silver_dedup_cdc.py) | De-duplication and forward-only CDC |
+| [`04_scd2`](notebooks/walkthrough/04_scd2.py) | Seller SCD2 and point-in-time joins |
+| [`05_quality_gate`](notebooks/walkthrough/05_quality_gate.py) | Rules, quarantine, metrics and the gate |
+| [`06_gold`](notebooks/walkthrough/06_gold.py) | Star schema, customer identity, GMV definition |
+
+---
+
 ## Tables
 
 | Layer | Table | Content |
