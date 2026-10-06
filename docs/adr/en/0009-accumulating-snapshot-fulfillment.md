@@ -25,7 +25,10 @@ cancelled / unavailable.
 - **Durations in hours**: `hours_to_approve`, `hours_to_ship`, `hours_in_transit`,
   `hours_total`, and `hours_late`, which counts from the **end** of the estimated day, because the
   estimate is a date (consistent with `is_on_time`).
-- **Role-playing date keys**: one key per milestone, all pointing at `dim_date`.
+- **Role-playing date keys**: one key per milestone, all pointing at `dim_date`. Following
+  Kimball, a date key is **never NULL**: a milestone that has not happened yet points at a
+  special `dim_date` row, `-1` ("not yet happened"). Joins never drop open orders, and BI tools
+  show a label instead of a blank.
 - **No seller column.** One order can have several sellers; seller analysis stays on
   `fact_order_item`. Order-level measures are `item_count` and `order_value`.
 

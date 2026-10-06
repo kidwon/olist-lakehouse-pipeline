@@ -80,7 +80,9 @@ def test_open_order_has_no_durations_and_is_not_flagged(spark):
     r = build(spark, lifecycle(shipped=None, delivered=None))["o1"]
     assert r.current_status == "approved"
     assert (r.hours_to_ship, r.hours_in_transit, r.hours_total, r.hours_late, r.is_on_time) == (None,) * 5
-    assert r.delivered_date_key is None and not r.has_inconsistent_milestones
+    # Kimball: never a NULL foreign key; a milestone that has not happened points at the NOT_YET row.
+    assert (r.shipped_date_key, r.delivered_date_key) == (gold.NOT_YET, gold.NOT_YET)
+    assert not r.has_inconsistent_milestones
 
 
 def test_cancellation_and_unavailability_end_the_order_with_a_reason(spark):

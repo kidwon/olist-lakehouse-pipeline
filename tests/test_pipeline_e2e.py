@@ -174,3 +174,15 @@ def test_fulfillment_has_one_row_per_order_with_its_end(run):
     assert fact.where("hours_total < 0 OR hours_to_ship < 0").count() == 0
     metric = spark.table(cfg.table("ops", "dq_metrics")).where("rule = 'inconsistent_milestones'")
     assert metric.count() > 0 and metric.agg(F.max("failed_rows")).first()[0] == 0
+
+
+def test_every_fulfillment_date_key_resolves_in_dim_date(run):
+    """No NULL date keys, and no key without a dim_date row: open milestones point at NOT_YET."""
+    spark, cfg, *_ = run
+    fact = spark.table(cfg.table("gold", "fact_order_fulfillment"))
+    dates = spark.table(cfg.table("gold", "dim_date")).select("date_key")
+    keys = ["purchase_date_key", "approved_date_key", "shipped_date_key", "delivered_date_key", "estimated_date_key"]
+    for k in keys:
+        assert fact.where(F.col(k).isNull()).count() == 0, k
+        assert fact.select(F.col(k).alias("date_key")).join(dates, "date_key", "left_anti").count() == 0, k
+    assert fact.where(F.col("delivered_date_key") == -1).count() == fact.where("delivered_ts IS NULL").count() > 0

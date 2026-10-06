@@ -83,13 +83,13 @@ print(f"changes delivered twice: {2 * log_rows.count()}, rows in the log: {spark
 # MAGIC
 # MAGIC ---
 # MAGIC #### 🇬🇧 English
-# MAGIC `gold.build_fact_order_fulfillment` turns 12 changes into 4 rows. Milestones come from each order's latest change; the end of `o2` comes from its `canceled` change. Durations are in hours. Look at `o3`: it was handed to the carrier **before** payment was approved, so "approved → carrier" would be −6 hours. The raw timestamps stay as they are, the negative duration becomes NULL, and the order is flagged. A negative number would quietly drag every average down.
+# MAGIC `gold.build_fact_order_fulfillment` turns 12 changes into 4 rows. Milestones come from each order's latest change; the end of `o2` comes from its `canceled` change. Durations are in hours. A milestone that has not happened yet gets the date key `-1`, a special "not yet happened" row in `dim_date`: following Kimball, a fact's date key is never NULL. Look at `o3`: it was handed to the carrier **before** payment was approved, so "approved → carrier" would be −6 hours. The raw timestamps stay as they are, the negative duration becomes NULL, and the order is flagged. A negative number would quietly drag every average down.
 # MAGIC
 # MAGIC #### 🇨🇳 中文
-# MAGIC `gold.build_fact_order_fulfillment` 把 12 条变更变成 4 行。各阶段时间取自每个订单最新的变更，`o2` 的结束时间取自它的 `canceled` 变更。时长以小时为单位。看一下 `o3`：它在付款审核**之前**就交给了承运商，所以"审核 → 交接"会是 −6 小时。原始时间戳保持不变，负的时长变成 NULL，订单被打上标记。负数会悄悄拉低所有平均值。
+# MAGIC `gold.build_fact_order_fulfillment` 把 12 条变更变成 4 行。各阶段时间取自每个订单最新的变更，`o2` 的结束时间取自它的 `canceled` 变更。时长以小时为单位。还没发生的阶段，日期键是 `-1`，指向 `dim_date` 里一行"尚未发生"的特殊记录：按照 Kimball 的做法，事实表的日期键从不为 NULL。看一下 `o3`：它在付款审核**之前**就交给了承运商，所以"审核 → 交接"会是 −6 小时。原始时间戳保持不变，负的时长变成 NULL，订单被打上标记。负数会悄悄拉低所有平均值。
 # MAGIC
 # MAGIC #### 🇯🇵 日本語
-# MAGIC `gold.build_fact_order_fulfillment` は12件の変更を4行にします。マイルストーンは各注文の最新の変更から、`o2` の終了は `canceled` の変更から取ります。所要時間は時間単位です。`o3` を見てください。支払いが承認される**前に**配送業者へ引き渡されているため、「承認 → 引き渡し」は −6 時間になります。元のタイムスタンプはそのまま残し、負の所要時間は NULL にして、注文にフラグを付けます。負の値があると、すべての平均値が気付かないうちに下がってしまいます。
+# MAGIC `gold.build_fact_order_fulfillment` は12件の変更を4行にします。マイルストーンは各注文の最新の変更から、`o2` の終了は `canceled` の変更から取ります。所要時間は時間単位です。まだ起きていないマイルストーンの日付キーは `-1` で、`dim_date` の「未発生」という特別な行を指します。Kimball に従い、ファクトの日付キーは決して NULL にしません。`o3` を見てください。支払いが承認される**前に**配送業者へ引き渡されているため、「承認 → 引き渡し」は −6 時間になります。元のタイムスタンプはそのまま残し、負の所要時間は NULL にして、注文にフラグを付けます。負の値があると、すべての平均値が気付かないうちに下がってしまいます。
 
 # COMMAND ----------
 

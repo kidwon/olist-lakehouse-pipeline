@@ -12,7 +12,7 @@
 - **数据来源是新增的 `silver.order_changes`**：一张只追加的日志，保存每一条校验通过的状态变更，键为 `(order_id, change_seq)`，从不更新。`silver.orders` 只保存当前状态，日志保存的是走到这个状态的过程。取消／缺货订单的结束时间从这里取得，它同时也是审计记录。它是**一条带独立 checkpoint 的单独数据流**，所以已有环境在下一次运行时会自动从 Bronze 回填全部历史。规则只为过滤而重新评估，隔离和指标仍只由 `orders` 记录一次。
 - **各阶段时间**取自该订单最新的一条变更（变更后镜像带着到当时为止的全部时间戳）。结束取第一条 `canceled`／`unavailable` 变更，原因写入 `end_reason`。
 - **时长以小时为单位**：`hours_to_approve`、`hours_to_ship`、`hours_in_transit`、`hours_total`，以及 `hours_late`。`hours_late` 从预计送达日的**结束时刻**算起，因为预计送达是一个日期，这样和 `is_on_time` 保持一致。
-- **角色扮演日期键**：每个阶段一个日期键，都指向 `dim_date`。
+- **角色扮演日期键**：每个阶段一个日期键，都指向 `dim_date`。按照 Kimball 的做法，日期键**从不为 NULL**：还没发生的阶段指向 `dim_date` 里一行特殊记录 `-1`（"尚未发生"）。这样关联时不会丢掉未完成的订单，BI 工具里显示的也是标签而不是空白。
 - **不放卖家列。** 一个订单可能包含多个卖家，按卖家的分析仍用 `fact_order_item`。订单层面的度量是 `item_count` 和 `order_value`。
 
 ## 时间戳不一致

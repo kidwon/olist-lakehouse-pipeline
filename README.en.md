@@ -71,11 +71,11 @@ reported. The end-to-end tests assert this on every run.
 | delivered before purchase | 3 | `delivered_before_purchase` | 3 |
 | new field `discount_amount` | 314 | `rescued_data` | 314 |
 
-### Tests (`uv run pytest`, 40 tests)
+### Tests (`uv run pytest`, 41 tests)
 - **27 unit tests:** de-duplication, forward-only CDC, SCD2 (idempotency, "missing is not
   deleted", point-in-time join), DQ rule boundaries, contract parsing, customer identity, and
   the mart's GMV definition.
-- **13 end-to-end tests:** a backfill plus 6 replayed days, with the last day poisoned at
+- **14 end-to-end tests:** a backfill plus 6 replayed days, with the last day poisoned at
   about 12% bad rows. They reconcile every anomaly, check that the gate blocks only the
   poisoned day, check that a rerun changes nothing, and check that gold catches up on the
   next run.

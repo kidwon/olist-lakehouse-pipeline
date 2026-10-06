@@ -108,7 +108,9 @@ def test_mart_excludes_cancelled_orders_from_gmv(spark):
     assert r.avg_review_score == 4.0
 
 
-def test_dim_date_has_one_row_per_day(spark):
+def test_dim_date_has_one_row_per_day_plus_not_yet(spark):
     d = gold.build_dim_date(spark, dt.date(2018, 1, 1), dt.date(2018, 12, 31))
-    assert d.count() == 365
+    assert d.count() == 365 + 1
     assert d.where(F.col("date_key") == 20180601).first().year_month == "2018-06"
+    not_yet = d.where(F.col("date_key") == gold.NOT_YET).collect()
+    assert len(not_yet) == 1 and not_yet[0].date is None and not_yet[0].date_label == "not yet happened"

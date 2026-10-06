@@ -29,17 +29,37 @@ def _overwrite(df: DataFrame, name: str) -> None:
 # ---------------------------------------------------------------------------
 # pure builders (unit-tested)
 # ---------------------------------------------------------------------------
+NOT_YET = -1  # date key of the dim_date row for a milestone that has not happened (yet)
+
+
 def build_dim_date(spark: SparkSession, start: dt.date = dt.date(2016, 1, 1), end: dt.date = dt.date(2019, 12, 31)) -> DataFrame:
+    """One row per calendar day, plus the special row NOT_YET.
+
+    Kimball: a fact's date foreign key should never be NULL. An accumulating snapshot has
+    milestones that have not happened yet, so they point at this row instead (ADR-0009).
+    """
     days = spark.sql(f"SELECT explode(sequence(DATE'{start}', DATE'{end}', INTERVAL 1 DAY)) AS date")
-    return days.select(
+    calendar = days.select(
         F.date_format("date", "yyyyMMdd").cast("int").alias("date_key"),
         "date",
+        F.date_format("date", "yyyy-MM-dd").alias("date_label"),
         F.year("date").alias("year"),
         F.month("date").alias("month"),
         F.date_format("date", "yyyy-MM").alias("year_month"),
         F.dayofweek("date").alias("day_of_week"),
         F.dayofweek("date").isin(1, 7).alias("is_weekend"),
     )
+    not_yet = spark.range(1).select(
+        F.lit(NOT_YET).alias("date_key"),
+        F.lit(None).cast("date").alias("date"),
+        F.lit("not yet happened").alias("date_label"),
+        F.lit(None).cast("int").alias("year"),
+        F.lit(None).cast("int").alias("month"),
+        F.lit("not yet happened").alias("year_month"),
+        F.lit(None).cast("int").alias("day_of_week"),
+        F.lit(None).cast("boolean").alias("is_weekend"),
+    )
+    return calendar.unionByName(not_yet)
 
 
 def build_dim_customer(customers: DataFrame, orders: DataFrame) -> DataFrame:
@@ -151,7 +171,8 @@ def _hours(start: str, end: str):
 
 
 def _date_key(ts: str):
-    return F.date_format(ts, "yyyyMMdd").cast("int")
+    """yyyyMMdd key into dim_date; a milestone that has not happened gets NOT_YET, never NULL."""
+    return F.coalesce(F.date_format(ts, "yyyyMMdd").cast("int"), F.lit(NOT_YET))
 
 
 def build_fact_order_fulfillment(changes: DataFrame, items: DataFrame, customers: DataFrame) -> DataFrame:
@@ -252,8 +273,8 @@ def merge_fact(spark: SparkSession, name: str, source: DataFrame, keys: list[str
 def run(spark: SparkSession, cfg: Config) -> None:
     silver = {n: spark.table(cfg.table("silver", n)) for n in ["order_items", "orders", "customers", "products", "reviews", "seller_history"]}
 
-    if not spark.catalog.tableExists(cfg.table("gold", "dim_date")):
-        _overwrite(build_dim_date(spark), cfg.table("gold", "dim_date"))
+    # Rebuilt every run (about 1,500 rows), so a change to the dimension reaches existing deployments.
+    _overwrite(build_dim_date(spark), cfg.table("gold", "dim_date"))
     _overwrite(build_dim_customer(silver["customers"], silver["orders"]), cfg.table("gold", "dim_customer"))
     _overwrite(silver["products"].drop("_batch_date", "_source_file", "_ingested_at"), cfg.table("gold", "dim_product"))
     _overwrite(silver["seller_history"].drop("attr_hash"), cfg.table("gold", "dim_seller"))
