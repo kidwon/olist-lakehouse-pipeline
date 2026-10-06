@@ -14,7 +14,9 @@ variables:
 artifacts:
   default:
     type: whl
-    build: uv build --wheel
+    # Start from an empty dist/: the jobs install ../dist/*.whl, so a wheel left over from an
+    # older version would be installed alongside the new one.
+    build: python3 -c "import shutil; shutil.rmtree('dist', ignore_errors=True)" && uv build --wheel
     path: .
 
 targets:
