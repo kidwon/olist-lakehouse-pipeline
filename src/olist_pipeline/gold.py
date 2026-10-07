@@ -343,6 +343,9 @@ def merge_fact(
     merge = (
         DeltaTable.forName(spark, name).alias("t")
         .merge(src.alias("s"), " AND ".join(f"t.{k} = s.{k}" for k in keys))
+        # A column added to the fact must reach existing deployments: without schema evolution
+        # MERGE silently drops source columns the target does not have yet.
+        .withSchemaEvolution()
         .whenMatchedUpdateAll(condition="t.row_hash <> s.row_hash")
         .whenNotMatchedInsertAll()
     )

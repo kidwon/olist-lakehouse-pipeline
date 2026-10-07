@@ -142,3 +142,13 @@ def test_review_score_sits_next_to_the_delay(spark):
     assert (out["o1"].review_score, out["o1"].review_count, out["o1"].is_on_time) == (2.5, 2, False)  # mean of 2 reviews
     assert (out["o2"].review_score, out["o2"].review_count, out["o2"].is_on_time) == (5.0, 1, True)
     assert (out["o3"].review_score, out["o3"].review_count) == (None, 0)  # no review: no score is invented
+
+
+def test_a_new_column_reaches_an_existing_fact_table(spark, table_name):
+    """Deployed tables already exist with the old schema; MERGE must add new columns, not drop them."""
+    old = spark.createDataFrame([("o1", 1, "h1")], "order_id string, item_count int, row_hash string")
+    gold.merge_fact(spark, table_name, old, ["order_id"])
+    new = spark.createDataFrame([("o1", 1, 4.0, "h2")], "order_id string, item_count int, review_score double, row_hash string")
+    gold.merge_fact(spark, table_name, new, ["order_id"])
+    row = spark.table(table_name).first()
+    assert "review_score" in spark.table(table_name).columns and row.review_score == 4.0
