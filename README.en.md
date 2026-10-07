@@ -72,8 +72,8 @@ reported. The end-to-end tests assert this on every run.
 | delivered before purchase | 3 | `delivered_before_purchase` | 3 |
 | new field `discount_amount` | 314 | `rescued_data` | 314 |
 
-### Tests (`uv run pytest`, 52 tests)
-- **36 unit tests:** de-duplication, forward-only CDC, SCD2 (idempotency, "missing is not
+### Tests (`uv run pytest`, 53 tests)
+- **37 unit tests:** de-duplication, forward-only CDC, SCD2 (idempotency, "missing is not
   deleted", point-in-time join), DQ rule boundaries, contract parsing, customer identity, and
   the mart's GMV definition.
 - **16 end-to-end tests:** a backfill plus 6 replayed days, with the last day poisoned at

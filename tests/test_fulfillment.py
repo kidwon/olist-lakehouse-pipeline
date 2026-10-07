@@ -148,7 +148,17 @@ def test_a_new_column_reaches_an_existing_fact_table(spark, table_name):
     """Deployed tables already exist with the old schema; MERGE must add new columns, not drop them."""
     old = spark.createDataFrame([("o1", 1, "h1")], "order_id string, item_count int, row_hash string")
     gold.merge_fact(spark, table_name, old, ["order_id"])
-    new = spark.createDataFrame([("o1", 1, 4.0, "h2")], "order_id string, item_count int, review_score double, row_hash string")
+    # Same hash as the stored row on purpose: a broken earlier deploy can store the new hash while
+    # dropping the new column, so a hash comparison alone would never fill it in.
+    new = spark.createDataFrame([("o1", 1, 4.0, "h1")], "order_id string, item_count int, review_score double, row_hash string")
     gold.merge_fact(spark, table_name, new, ["order_id"])
     row = spark.table(table_name).first()
     assert "review_score" in spark.table(table_name).columns and row.review_score == 4.0
+
+
+def test_clearing_row_hash_forces_a_refresh(spark, table_name):
+    """The repair path for a table whose rows were stored with a stale hash."""
+    gold.merge_fact(spark, table_name, spark.createDataFrame([("o1", None, "h1")], "order_id string, review_score double, row_hash string"), ["order_id"])
+    spark.sql(f"UPDATE {table_name} SET row_hash = NULL")
+    gold.merge_fact(spark, table_name, spark.createDataFrame([("o1", 4.0, "h1")], "order_id string, review_score double, row_hash string"), ["order_id"])
+    assert spark.table(table_name).first().review_score == 4.0

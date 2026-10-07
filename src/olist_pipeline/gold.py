@@ -340,13 +340,19 @@ def merge_fact(
     if not spark.catalog.tableExists(name):
         source.limit(0).withColumn("_updated_at", F.current_timestamp()).write.format("delta").saveAsTable(name)
     src = source.withColumn("_updated_at", F.current_timestamp())
+    target = DeltaTable.forName(spark, name)
+    # When the source brings new columns, every existing row needs them: the content hash can't be
+    # trusted then (an earlier run may already have stored the new hash without the new column).
+    new_columns = set(src.columns) - set(target.toDF().columns)
+    # NULL-safe: clearing row_hash (UPDATE ... SET row_hash = NULL) forces a full refresh.
+    changed = None if new_columns else "NOT (t.row_hash <=> s.row_hash)"
     merge = (
-        DeltaTable.forName(spark, name).alias("t")
+        target.alias("t")
         .merge(src.alias("s"), " AND ".join(f"t.{k} = s.{k}" for k in keys))
         # A column added to the fact must reach existing deployments: without schema evolution
         # MERGE silently drops source columns the target does not have yet.
         .withSchemaEvolution()
-        .whenMatchedUpdateAll(condition="t.row_hash <> s.row_hash")
+        .whenMatchedUpdateAll(condition=changed)
         .whenNotMatchedInsertAll()
     )
     if delete_missing:

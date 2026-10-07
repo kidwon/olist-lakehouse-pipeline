@@ -61,8 +61,8 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 | 配送时间早于下单时间 | 3 | `delivered_before_purchase` | 3 |
 | 新字段 `discount_amount` | 314 | `rescued_data` | 314 |
 
-### 测试（`uv run pytest`，共 52 个）
-- **36 个单元测试**：去重、只前进的 CDC、SCD2（幂等、快照中缺失不等于删除、时点关联）、质量规则边界值、契约解析、客户身份归并、mart 的 GMV 口径。
+### 测试（`uv run pytest`，共 53 个）
+- **37 个单元测试**：去重、只前进的 CDC、SCD2（幂等、快照中缺失不等于删除、时点关联）、质量规则边界值、契约解析、客户身份归并、mart 的 GMV 口径。
 - **16 个端到端测试**：回填加回放 6 天，最后一天注入约 12% 的坏行。测试核对每一类异常，检查闸门只拦下被污染的那天、重跑不产生任何变化、下一次运行时 Gold 能追上。
 
 ### 真实数据（Olist，约 10 万订单）的运行结果
