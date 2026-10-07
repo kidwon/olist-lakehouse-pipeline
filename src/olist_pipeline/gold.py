@@ -256,18 +256,86 @@ def inconsistent_milestone_metric(fact: DataFrame, run_id: str) -> DataFrame:
     )
 
 
+OPEN_STATUSES = ["created", "approved", "invoiced", "processing", "shipped"]
+BACKLOG_KEYS = ["snapshot_date_key", "order_status", "customer_state"]
+STALE_AFTER_DAYS = 30
+
+
+def build_fact_daily_order_backlog(changes: DataFrame, items: DataFrame, customers: DataFrame) -> DataFrame:
+    """Periodic snapshot: open orders per day x status x customer state, by event time (ADR-0010).
+
+    An order's status on day D is the status of its highest `change_seq` among the changes dated
+    on or before D. Every day from the purchase date to the last day in the log is counted; an
+    order leaves the backlog once it is delivered, cancelled or unavailable. Because the day is
+    the day the change *happened*, a late change restates past days.
+    """
+    end_date = changes.agg(F.max(F.to_date("change_ts")).alias("d")).first()["d"]
+    # The last change of each order on each day (several changes can happen on one day).
+    per_day = (
+        changes.withColumn("change_date", F.to_date("change_ts"))
+        .withColumn("_rn", F.row_number().over(Window.partitionBy("order_id", "change_date").orderBy(F.col("change_seq").desc())))
+        .where("_rn = 1")
+        .select("order_id", "customer_id", "change_date", "change_seq",
+                F.to_date("order_purchase_ts").alias("purchase_date"), F.to_date("order_estimated_delivery_ts").alias("estimated_date"))
+    )
+    by_date = Window.partitionBy("order_id").orderBy("change_date")
+    # From each change date on, the order is in the state of the highest sequence seen so far.
+    segments = per_day.withColumn(
+        "state_seq", F.max("change_seq").over(by_date.rowsBetween(Window.unboundedPreceding, Window.currentRow))
+    ).withColumn("segment_end", F.coalesce(F.date_sub(F.lead("change_date").over(by_date), 1), F.lit(end_date)))
+    status_of = changes.select("order_id", F.col("change_seq").alias("state_seq"), "order_status")
+    segments = segments.join(status_of, ["order_id", "state_seq"]).where(F.col("order_status").isin(OPEN_STATUSES))
+
+    # One row per open order per day. A change dated before the purchase (inconsistent source
+    # data) never makes an order count before it existed.
+    start = F.greatest("change_date", "purchase_date")
+    daily = segments.where(start <= F.col("segment_end")).select(
+        "order_id", "customer_id", "order_status", "purchase_date", "estimated_date",
+        F.explode(F.sequence(start, F.col("segment_end"))).alias("snapshot_date"),
+    )
+    value = items.groupBy("order_id").agg(F.sum("price").alias("order_value"))
+    state = customers.select("customer_id", "customer_state")
+    daily = daily.join(value, "order_id", "left").join(state, "customer_id", "left")
+
+    age = F.datediff("snapshot_date", "purchase_date")
+    out = daily.groupBy(
+        "snapshot_date",
+        "order_status",
+        # A merge key must never be NULL, or the row would never match and duplicate every run.
+        F.coalesce("customer_state", F.lit("unknown")).alias("customer_state"),
+    ).agg(
+        F.count("*").alias("open_orders"),
+        F.coalesce(F.sum("order_value"), F.lit(0)).alias("open_order_value"),
+        F.percentile_approx(age, 0.5).alias("median_age_days"),
+        F.count_if(age > STALE_AFTER_DAYS).alias("orders_open_over_30_days"),
+        F.count_if(F.col("snapshot_date") > F.col("estimated_date")).alias("overdue_orders"),
+    ).select(_date_key("snapshot_date").alias("snapshot_date_key"), "*")
+    content = [c for c in out.columns if c not in BACKLOG_KEYS]
+    return out.withColumn("row_hash", F.sha2(F.to_json(F.struct(*content)), 256))
+
+
 # ---------------------------------------------------------------------------
-def merge_fact(spark: SparkSession, name: str, source: DataFrame, keys: list[str] = FACT_KEYS) -> None:
+def merge_fact(
+    spark: SparkSession, name: str, source: DataFrame, keys: list[str] = FACT_KEYS, delete_missing: bool = False
+) -> None:
+    """MERGE on the grain; rewrite a row only when its content hash changed.
+
+    `delete_missing` removes target rows absent from the source: for a snapshot rebuilt from the
+    full history, a combination that no longer exists (e.g. a backlog that dropped to zero after a
+    late change) must disappear.
+    """
     if not spark.catalog.tableExists(name):
         source.limit(0).withColumn("_updated_at", F.current_timestamp()).write.format("delta").saveAsTable(name)
     src = source.withColumn("_updated_at", F.current_timestamp())
-    (
+    merge = (
         DeltaTable.forName(spark, name).alias("t")
         .merge(src.alias("s"), " AND ".join(f"t.{k} = s.{k}" for k in keys))
         .whenMatchedUpdateAll(condition="t.row_hash <> s.row_hash")
         .whenNotMatchedInsertAll()
-        .execute()
     )
+    if delete_missing:
+        merge = merge.whenNotMatchedBySourceDelete()
+    merge.execute()
 
 
 def run(spark: SparkSession, cfg: Config) -> None:
@@ -289,6 +357,11 @@ def run(spark: SparkSession, cfg: Config) -> None:
     inconsistent_milestone_metric(spark.table(cfg.table("gold", "fact_order_fulfillment")), cfg.run_id).write.format(
         "delta"
     ).mode("append").saveAsTable(cfg.table("ops", "dq_metrics"))
+
+    backlog = build_fact_daily_order_backlog(
+        spark.table(cfg.table("silver", "order_changes")), silver["order_items"], silver["customers"]
+    )
+    merge_fact(spark, cfg.table("gold", "fact_daily_order_backlog"), backlog, BACKLOG_KEYS, delete_missing=True)
 
 
 def run_mart(spark: SparkSession, cfg: Config) -> None:

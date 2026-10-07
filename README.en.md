@@ -46,6 +46,7 @@ Databricks job (`resources/olist_jobs.yml`, serverless):
 | **Data quality** (where do bad rows go, who notices, when do we stop?) | Quarantine with named rules and per-batch metrics. If more than 5% of a run's rows are bad, gold is not published | [ADR-0005](docs/adr/en/0005-data-quality-gate.md) | [quality.py](src/olist_pipeline/quality.py), [gate.py](src/olist_pipeline/gate.py) | `test_gate_blocked_only_the_poisoned_run` |
 
 More decisions: [accumulating snapshot for order fulfillment](docs/adr/en/0009-accumulating-snapshot-fulfillment.md),
+[periodic snapshot of the daily order backlog](docs/adr/en/0010-periodic-snapshot-backlog.md),
 [data contracts and `_rescued_data`](docs/adr/en/0006-data-contracts-and-rescued-data.md),
 [customer identity (`customer_unique_id`)](docs/adr/en/0007-customer-identity.md),
 [imperative vs. declarative (Lakeflow)](docs/adr/en/0008-imperative-vs-declarative.md)
@@ -71,11 +72,11 @@ reported. The end-to-end tests assert this on every run.
 | delivered before purchase | 3 | `delivered_before_purchase` | 3 |
 | new field `discount_amount` | 314 | `rescued_data` | 314 |
 
-### Tests (`uv run pytest`, 41 tests)
-- **27 unit tests:** de-duplication, forward-only CDC, SCD2 (idempotency, "missing is not
+### Tests (`uv run pytest`, 50 tests)
+- **34 unit tests:** de-duplication, forward-only CDC, SCD2 (idempotency, "missing is not
   deleted", point-in-time join), DQ rule boundaries, contract parsing, customer identity, and
   the mart's GMV definition.
-- **14 end-to-end tests:** a backfill plus 6 replayed days, with the last day poisoned at
+- **16 end-to-end tests:** a backfill plus 6 replayed days, with the last day poisoned at
   about 12% bad rows. They reconcile every anomaly, check that the gate blocks only the
   poisoned day, check that a rerun changes nothing, and check that gold catches up on the
   next run.
@@ -124,7 +125,7 @@ state comes from the SCD2 `dim_seller` as of the order date. The dashboard is ge
 
 ## Walkthrough notebooks (日本語 / English / 中文)
 
-[`notebooks/walkthrough/`](notebooks/walkthrough/) holds seven notebooks, one per layer. Each imports
+[`notebooks/walkthrough/`](notebooks/walkthrough/) holds eight notebooks, one per layer. Each imports
 the production functions directly and runs them on a few hand-written rows: change an input,
 rerun, see the behaviour. Each ends with "Try it yourself" and "In the interview". CI runs every
 notebook, so the explanations cannot drift from the code.
@@ -139,6 +140,7 @@ notebook, so the explanations cannot drift from the code.
 | [`05_quality_gate`](notebooks/walkthrough/05_quality_gate.py) | Rules, quarantine, metrics and the gate |
 | [`06_gold`](notebooks/walkthrough/06_gold.py) | Star schema, customer identity, GMV definition |
 | [`07_fulfillment`](notebooks/walkthrough/07_fulfillment.py) | Accumulating snapshot, right-censoring |
+| [`08_backlog`](notebooks/walkthrough/08_backlog.py) | Periodic snapshot, late data restating past days |
 
 ---
 
@@ -154,6 +156,7 @@ notebook, so the explanations cannot drift from the code.
 | Silver | `olist_silver.{customers, reviews, products}` | validated reference data and reviews |
 | Gold | `olist_gold.fact_order_item` | grain: order item; carries the point-in-time `seller_sk` |
 | Gold | `olist_gold.fact_order_fulfillment` | accumulating snapshot: one row per order, every milestone and the hours per stage |
+| Gold | `olist_gold.fact_daily_order_backlog` | periodic snapshot: open orders per day × status × customer state (count, value, age, overdue) |
 | Gold | `olist_gold.dim_{date, customer, product, seller}` | dimensions; customers are per `customer_unique_id` |
 | Gold | `olist_gold.mart_seller_delivery_performance` | seller × month: GMV, on-time rate, review score |
 | Ops | `olist_ops.{dq_metrics, quarantine, dq_gate_log, replay_manifest}` | quality metrics, quarantine, gate decisions, replay plan (ground truth) |

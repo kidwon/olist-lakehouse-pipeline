@@ -114,6 +114,16 @@
       ]
     },
     {
+      "name": "biz_backlog",
+      "displayName": "biz_backlog",
+      "queryLines": [
+        "SELECT snapshot_date, order_status, SUM(open_orders) AS open_orders\n",
+        "FROM workspace.olist_gold.fact_daily_order_backlog\n",
+        "WHERE snapshot_date >= DATE'2017-01-01'\n",
+        "GROUP BY ALL\n"
+      ]
+    },
+    {
       "name": "biz_top",
       "displayName": "biz_top",
       "queryLines": [
@@ -1029,6 +1039,71 @@
           "position": {
             "x": 0,
             "y": 18,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "biz_backlog_line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "biz_backlog",
+                  "fields": [
+                    {
+                      "name": "snapshot_date",
+                      "expression": "`snapshot_date`"
+                    },
+                    {
+                      "name": "open_orders",
+                      "expression": "`open_orders`"
+                    },
+                    {
+                      "name": "order_status",
+                      "expression": "`order_status`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "snapshot_date",
+                  "displayName": "日付",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "open_orders",
+                  "displayName": "未完了の注文",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "order_status",
+                  "displayName": "ステータス",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "日次の未完了注文（ステータス別）/ Daily open orders by status (fact_daily_order_backlog)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 24,
             "width": 6,
             "height": 6
           }

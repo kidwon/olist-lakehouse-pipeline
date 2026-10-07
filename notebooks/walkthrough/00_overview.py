@@ -54,6 +54,7 @@
 # MAGIC | `quality.py`, `gate.py` | Rules, quarantine, metrics, gate / 规则、隔离、指标、闸门 / ルール、隔離、メトリクス、ゲート | 05 |
 # MAGIC | `gold.py` | Star schema and mart / 星型模型与 mart / スタースキーマとマート | 06 |
 # MAGIC | `gold.py` (`build_fact_order_fulfillment`) | Accumulating snapshot / 累积快照 / 累積スナップショット | 07 |
+# MAGIC | `gold.py` (`build_fact_daily_order_backlog`) | Periodic snapshot / 周期快照 / 定期スナップショット | 08 |
 # MAGIC | `cli.py` | One entry point per job task / 每个作业任务一个入口 / ジョブタスクごとのエントリポイント | — |
 
 # COMMAND ----------
@@ -89,5 +90,6 @@
 # MAGIC 5. `05_quality_gate`: quarantine, metrics and the gate / 隔离、指标与闸门 / 隔離、メトリクス、ゲート
 # MAGIC 6. `06_gold`: star schema, customer identity, GMV / 星型模型、客户身份、GMV / スタースキーマ、顧客の名寄せ、GMV
 # MAGIC 7. `07_fulfillment`: accumulating snapshot of order fulfillment / 订单履约的累积快照 / 注文フルフィルメントの累積スナップショット
+# MAGIC 8. `08_backlog`: periodic snapshot of the daily order backlog / 每日订单积压的周期快照 / 日次注文残の定期スナップショット
 # MAGIC
 # MAGIC The design decisions behind each step are in `docs/adr/` (ja / en / zh).

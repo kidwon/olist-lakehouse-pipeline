@@ -40,7 +40,7 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 | **遅延データ**（どの日に計上するか） | 販売日で計上し、3日以内なら Gold を MERGE で遡って修正。3日超は隔離 | [ADR-0004](docs/adr/ja/0004-late-data.md) | `add_lateness`, `merge_fact` | `test_late_items_are_accepted_and_dated_by_the_sale` |
 | **データ品質**（不正な行はどこへ行き、誰が気付き、いつ止めるか） | ルールごとに隔離しメトリクスを記録。実行単位で不正率 5% を超えたら Gold を公開しない | [ADR-0005](docs/adr/ja/0005-data-quality-gate.md) | [quality.py](src/olist_pipeline/quality.py), [gate.py](src/olist_pipeline/gate.py) | `test_gate_blocked_only_the_poisoned_run` |
 
-その他の判断: [注文フルフィルメントの累積スナップショット](docs/adr/ja/0009-accumulating-snapshot-fulfillment.md)、[データ契約と `_rescued_data`](docs/adr/ja/0006-data-contracts-and-rescued-data.md)、[顧客の名寄せ（`customer_unique_id`）](docs/adr/ja/0007-customer-identity.md)、[命令型と宣言型（Lakeflow）の比較](docs/adr/ja/0008-imperative-vs-declarative.md)
+その他の判断: [注文フルフィルメントの累積スナップショット](docs/adr/ja/0009-accumulating-snapshot-fulfillment.md)、[日次注文残の定期スナップショット](docs/adr/ja/0010-periodic-snapshot-backlog.md)、[データ契約と `_rescued_data`](docs/adr/ja/0006-data-contracts-and-rescued-data.md)、[顧客の名寄せ（`customer_unique_id`）](docs/adr/ja/0007-customer-identity.md)、[命令型と宣言型（Lakeflow）の比較](docs/adr/ja/0008-imperative-vs-declarative.md)
 
 ---
 
@@ -61,9 +61,9 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 | 購入前の配達日時 | 3 | `delivered_before_purchase` | 3 |
 | 新しいフィールド `discount_amount` | 314 | `rescued_data` | 314 |
 
-### テスト（`uv run pytest`、41件）
-- **単体テスト 27件:** 重複排除、CDC の前進方向マージ、SCD2（冪等性、欠落は削除ではないこと、時点結合）、DQ ルールの境界値、契約パース、顧客の名寄せ、マートの GMV 定義
-- **E2E テスト 14件:** バックフィル＋6日分をリプレイ（最終日は不正率約12%で汚染）。すべての異常の突き合わせ、ゲートが汚染日だけを止めること、再実行で何も変わらないこと、後続の実行で Gold が追い付くことを検証
+### テスト（`uv run pytest`、50件）
+- **単体テスト 34件:** 重複排除、CDC の前進方向マージ、SCD2（冪等性、欠落は削除ではないこと、時点結合）、DQ ルールの境界値、契約パース、顧客の名寄せ、マートの GMV 定義
+- **E2E テスト 16件:** バックフィル＋6日分をリプレイ（最終日は不正率約12%で汚染）。すべての異常の突き合わせ、ゲートが汚染日だけを止めること、再実行で何も変わらないこと、後続の実行で Gold が追い付くことを検証
 
 ### 実データ（Olist 約10万注文）での実行結果
 
@@ -101,7 +101,7 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 
 ## ウォークスルー・ノートブック（日本語 / English / 中文）
 
-[`notebooks/walkthrough/`](notebooks/walkthrough/) には、レイヤーごとの解説ノートブックが7本あります。各ノートブックは本番コードの関数をそのままインポートし、手書きの数行のデータで動かします。入力を変えて再実行すれば挙動を確認でき、最後に「やってみよう」と「面接では」の節があります。CI で毎回実行しているため、解説とコードが食い違うことはありません。
+[`notebooks/walkthrough/`](notebooks/walkthrough/) には、レイヤーごとの解説ノートブックが8本あります。各ノートブックは本番コードの関数をそのままインポートし、手書きの数行のデータで動かします。入力を変えて再実行すれば挙動を確認でき、最後に「やってみよう」と「面接では」の節があります。CI で毎回実行しているため、解説とコードが食い違うことはありません。
 
 | ノートブック | 内容 |
 |---|---|
@@ -113,6 +113,7 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 | [`05_quality_gate`](notebooks/walkthrough/05_quality_gate.py) | ルール、隔離、メトリクス、ゲート |
 | [`06_gold`](notebooks/walkthrough/06_gold.py) | スタースキーマ、顧客の名寄せ、GMV の定義 |
 | [`07_fulfillment`](notebooks/walkthrough/07_fulfillment.py) | 累積スナップショット、右側打ち切り |
+| [`08_backlog`](notebooks/walkthrough/08_backlog.py) | 定期スナップショット、遅延データによる過去の修正 |
 
 ---
 
@@ -128,6 +129,7 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 | Silver | `olist_silver.{customers, reviews, products}` | 検証済みのマスタとレビュー |
 | Gold | `olist_gold.fact_order_item` | 粒度: 注文明細。注文時点のセラー（`seller_sk`）を持つ |
 | Gold | `olist_gold.fact_order_fulfillment` | 累積スナップショット: 1注文1行、各マイルストーンと段階ごとの所要時間 |
+| Gold | `olist_gold.fact_daily_order_backlog` | 定期スナップショット: 日付 × ステータス × 顧客の州ごとの未完了注文（件数、金額、経過日数、期限切れ） |
 | Gold | `olist_gold.dim_{date, customer, product, seller}` | ディメンション（顧客は `customer_unique_id` 単位） |
 | Gold | `olist_gold.mart_seller_delivery_performance` | セラー × 月: GMV、定時配達率、レビュー平均 |
 | Ops | `olist_ops.{dq_metrics, quarantine, dq_gate_log, replay_manifest}` | 品質メトリクス、隔離、ゲート判定、リプレイ計画（正解データ） |

@@ -76,6 +76,11 @@ DATASETS = {
             '3 carrier → customer', hours_in_transit) s AS stage, hours
         WHERE purchase_ts >= TIMESTAMP'2017-01-01' AND hours IS NOT NULL
         GROUP BY ALL""",
+    "biz_backlog": f"""
+        SELECT snapshot_date, order_status, SUM(open_orders) AS open_orders
+        FROM {C}.olist_gold.fact_daily_order_backlog
+        WHERE snapshot_date >= DATE'2017-01-01'
+        GROUP BY ALL""",
     "biz_top": f"""
         SELECT seller_id, seller_state,
                ROUND(SUM(gmv), 0) AS gmv, SUM(orders) AS orders,
@@ -205,6 +210,10 @@ business_page = [
              "履約の各段階の平均時間（時間）/ Average hours per fulfillment stage (fact_order_fulfillment)",
              ("month", "月", "temporal"), ("avg_hours", "平均時間", "quantitative"),
              ("stage", "段階", "categorical")), 0, 18, 6, 6),
+    at(chart("biz_backlog_line", "line", "biz_backlog",
+             "日次の未完了注文（ステータス別）/ Daily open orders by status (fact_daily_order_backlog)",
+             ("snapshot_date", "日付", "temporal"), ("open_orders", "未完了の注文", "quantitative"),
+             ("order_status", "ステータス", "categorical")), 0, 24, 6, 6),
     at(table("biz_top_table", "biz_top", "GMV 上位セラー / Top sellers",
              [("seller_id", "セラー"), ("seller_state", "州"), ("gmv", "GMV"), ("orders", "注文"),
               ("on_time_rate", "定時率"), ("avg_review_score", "評価")]), 3, 11, 3, 7),

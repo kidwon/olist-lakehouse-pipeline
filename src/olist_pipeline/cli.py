@@ -28,6 +28,10 @@ def local_spark(base_path: str) -> SparkSession:
 
     # Python workers must use the same interpreter as the driver.
     os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
+    # Never resolve this machine's hostname through DNS: on macOS that lookup hangs for minutes
+    # when the network is down, stalling a purely local run at random points.
+    os.environ.setdefault("SPARK_LOCAL_IP", "127.0.0.1")
+    os.environ.setdefault("SPARK_LOCAL_HOSTNAME", "localhost")
     builder = (
         SparkSession.builder.master("local[2]")
         .appName("olist-pipeline")
@@ -36,6 +40,9 @@ def local_spark(base_path: str) -> SparkSession:
         .config("spark.sql.warehouse.dir", f"{base_path}/_warehouse")
         .config("spark.sql.shuffle.partitions", "4")
         .config("spark.ui.enabled", "false")
+        # Talk to ourselves over loopback: a Wi-Fi/VPN address change must not stall a local run.
+        .config("spark.driver.host", "localhost")
+        .config("spark.driver.bindAddress", "127.0.0.1")
         .config("spark.driver.extraJavaOptions", f"-Dderby.system.home={base_path}/_derby")
         .enableHiveSupport()
     )

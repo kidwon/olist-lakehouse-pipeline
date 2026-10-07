@@ -13,7 +13,7 @@ from pyspark.sql import Window
 from pyspark.sql import functions as F
 
 from olist_fixture import write_fixture
-from olist_pipeline import cli
+from olist_pipeline import cli, gold
 from olist_pipeline.config import Config
 
 BACKFILL = dt.date(2018, 5, 31)
@@ -34,7 +34,12 @@ def run(spark, tmp_path_factory):
     # A second run with no new files: must change nothing in silver.
     cli.process(spark, replace(cfg, run_id="rerun"))
     after = {t: count(t) for t in before}
-    return spark, cfg, before, after
+    # The poisoned last run did not publish gold, so the rerun above was a catch-up run that may
+    # legitimately restate backlog days. Idempotency is checked between two runs after it.
+    backlog_once = spark.table(cfg.table("gold", "fact_daily_order_backlog")).orderBy(*gold.BACKLOG_KEYS).collect()
+    cli.process(spark, replace(cfg, run_id="rerun-2"))
+    backlog_twice = spark.table(cfg.table("gold", "fact_daily_order_backlog")).orderBy(*gold.BACKLOG_KEYS).collect()
+    return spark, cfg, before, after, backlog_once, backlog_twice
 
 
 def injected(spark, cfg, feed):
@@ -122,8 +127,28 @@ def test_seller_relocations_become_closed_scd2_versions(run):
 
 
 def test_rerun_without_new_files_changes_nothing(run):
-    _, _, before, after = run
+    _, _, before, after, *_ = run
     assert before == after
+
+
+def test_backlog_rerun_gives_identical_snapshot(run):
+    *_, once, twice = run
+    strip = lambda rows: [{k: v for k, v in r.asDict().items() if k != "_updated_at"} for r in rows]
+    assert len(once) > 0 and strip(once) == strip(twice)
+
+
+def test_backlog_on_the_last_day_equals_the_open_orders(run):
+    """Cross-check the periodic snapshot against the accumulating snapshot on the last day."""
+    spark, cfg, *_ = run
+    backlog = spark.table(cfg.table("gold", "fact_daily_order_backlog"))
+    keys = gold.BACKLOG_KEYS
+    assert backlog.count() == backlog.select(*keys).distinct().count()
+    assert backlog.where(" OR ".join(f"{k} IS NULL" for k in keys)).count() == 0
+    last = backlog.agg(F.max("snapshot_date")).first()[0]
+    on_last_day = backlog.where(F.col("snapshot_date") == last).agg(F.sum("open_orders")).first()[0]
+    open_now = spark.table(cfg.table("gold", "fact_order_fulfillment")).where(F.col("current_status").isin(gold.OPEN_STATUSES)).count()
+    assert on_last_day == open_now > 0
+    assert backlog.where("open_orders <= 0 OR overdue_orders > open_orders OR orders_open_over_30_days > open_orders").count() == 0
 
 
 def test_gold_fact_matches_silver_after_catch_up_run(run):
