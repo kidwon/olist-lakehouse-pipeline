@@ -152,6 +152,27 @@ show(spark.sql(f"DESCRIBE HISTORY {FACT}").where("operation = 'MERGE'")
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## 5. Satisfaction next to the delay / 把满意度放在延误旁边 / 遅延と並べた満足度
+# MAGIC
+# MAGIC ---
+# MAGIC #### 🇬🇧 English
+# MAGIC Passing the reviews adds `review_score` (the mean of the order's reviews) and `review_count` to each row, so delay and satisfaction can be compared directly. An order without a review keeps a NULL score. On the real data, on-time orders average 4.27 stars and late ones 2.21; 64% of late orders get a 1–2 star review.
+# MAGIC
+# MAGIC #### 🇨🇳 中文
+# MAGIC 传入评价数据后，每一行会多出 `review_score`（订单评分的平均值）和 `review_count`，这样延误和满意度就可以直接对比。没有评价的订单，评分保持为 NULL。真实数据中，准时订单平均 4.27 星，迟到订单只有 2.21 星；64% 的迟到订单得到 1–2 星的差评。
+# MAGIC
+# MAGIC #### 🇯🇵 日本語
+# MAGIC レビューを渡すと、各行に `review_score`（注文のレビュー評価の平均）と `review_count` が加わり、遅延と満足度を直接比べられます。レビューのない注文の評価は NULL のままです。実データでは、定時の注文は平均 4.27、遅延した注文は 2.21 で、遅延した注文の 64% が1〜2つ星の評価を受けています。
+
+# COMMAND ----------
+
+reviews = spark.createDataFrame([("o1", 5), ("o4", 2), ("o4", 3)], "order_id string, review_score int")
+rated = gold.build_fact_order_fulfillment(spark.table(LOG), items, customers, reviews)
+show(rated.select("order_id", "current_status", "hours_late", "is_on_time", "review_score", "review_count").orderBy("order_id"))
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## Try it yourself / 自己试试 / やってみよう
 # MAGIC
 # MAGIC ---

@@ -197,6 +197,11 @@ def test_fulfillment_has_one_row_per_order_with_its_end(run):
     # The synthetic fixture has consistent timestamps, so nothing may be flagged.
     assert fact.where("has_inconsistent_milestones").count() == 0
     assert fact.where("hours_total < 0 OR hours_to_ship < 0").count() == 0
+    # The fixture reviews every delivered order the day after delivery, so every order delivered
+    # before the last replay day has its score on the fact; later ones legitimately have none yet.
+    reviewed = fact.where(F.to_date("delivered_ts") < F.lit(cfg.last_replay_date))
+    assert reviewed.count() > 0 and reviewed.where("review_score IS NULL").count() == 0
+    assert fact.where("review_score NOT BETWEEN 1 AND 5").count() == 0
     metric = spark.table(cfg.table("ops", "dq_metrics")).where("rule = 'inconsistent_milestones'")
     assert metric.count() > 0 and metric.agg(F.max("failed_rows")).first()[0] == 0
 

@@ -53,6 +53,22 @@ Later changes are after-images that still carry the wrong carrier timestamp, so 
 behaviour; fixing silver would mean nulling individual timestamps there, which is a separate
 decision.
 
+## Satisfaction next to the delay
+Added after a reader asked how delays affect customer satisfaction. The fact carries
+`review_score` (the mean of the order's reviews; an order can have more than one) and
+`review_count`. An order without a review keeps a NULL score; nothing is imputed. On the real
+data, delivered and reviewed orders:
+
+| Delivery | Orders | Avg score | 1–2 star share |
+|---|---:|---:|---:|
+| On time | 71,451 | 4.27 | 9.4% |
+| Late | 5,505 | 2.21 | 64.1% |
+
+By lateness: 7+ days early 4.30, 0–7 days early 4.08, 1–3 days late 3.22, 4–7 days late 2.07,
+8+ days late 1.66. Olist has no other customer touchpoints (support contacts, browsing), so this
+covers the delivery experience only. Reviews arrive after delivery, so the most recent orders
+have no score yet (the same right-censoring as the stage durations).
+
 ## Alternatives considered
 - **Read milestones from `silver.orders` only:** simpler, but there is no end time for
   cancelled orders and no history.

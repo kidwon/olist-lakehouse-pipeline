@@ -129,3 +129,16 @@ def test_change_log_keeps_every_change_once(spark, table_name):
     silver.merge_insert_new(spark, table_name, log, ["order_id", "change_seq"])
     silver.merge_insert_new(spark, table_name, log, ["order_id", "change_seq"])
     assert spark.table(table_name).count() == 4
+
+
+def test_review_score_sits_next_to_the_delay(spark):
+    """Delay and satisfaction on the same row: late orders can be compared with how they were rated."""
+    reviews = spark.createDataFrame([("o1", 2), ("o1", 3), ("o2", 5)], "order_id string, review_score int")
+    fact = gold.build_fact_order_fulfillment(
+        changes(spark, lifecycle("o1", delivered=T(2018, 6, 8)) + lifecycle("o2") + lifecycle("o3")),
+        items(spark, []), customers(spark, []), reviews,
+    )
+    out = {r.order_id: r for r in fact.collect()}
+    assert (out["o1"].review_score, out["o1"].review_count, out["o1"].is_on_time) == (2.5, 2, False)  # mean of 2 reviews
+    assert (out["o2"].review_score, out["o2"].review_count, out["o2"].is_on_time) == (5.0, 1, True)
+    assert (out["o3"].review_score, out["o3"].review_count) == (None, 0)  # no review: no score is invented

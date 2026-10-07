@@ -175,7 +175,9 @@ def _date_key(ts: str):
     return F.coalesce(F.date_format(ts, "yyyyMMdd").cast("int"), F.lit(NOT_YET))
 
 
-def build_fact_order_fulfillment(changes: DataFrame, items: DataFrame, customers: DataFrame) -> DataFrame:
+def build_fact_order_fulfillment(
+    changes: DataFrame, items: DataFrame, customers: DataFrame, reviews: DataFrame | None = None
+) -> DataFrame:
     """Accumulating snapshot: one row per order, updated in place as milestones arrive (ADR-0009).
 
     Milestone times come from the order's latest change (an after-image carries every timestamp
@@ -206,8 +208,17 @@ def build_fact_order_fulfillment(changes: DataFrame, items: DataFrame, customers
     )
     lines = items.groupBy("order_id").agg(F.count("*").alias("item_count"), F.sum("price").alias("order_value"))
     who = customers.select("customer_id", "customer_unique_id")
+    # Satisfaction next to the delay: an order can have several reviews, so their mean is used.
+    if reviews is None:
+        reviews = changes.sparkSession.createDataFrame([], "order_id string, review_score int")
+    scores = reviews.groupBy("order_id").agg(
+        F.round(F.avg("review_score"), 2).alias("review_score"), F.count("*").alias("review_count")
+    )
 
-    f = latest.join(ended, "order_id", "left").join(lines, "order_id", "left").join(who, "customer_id", "left")
+    f = (
+        latest.join(ended, "order_id", "left").join(lines, "order_id", "left").join(who, "customer_id", "left")
+        .join(scores, "order_id", "left")
+    )
 
     raw = {name: _hours(a, b) for name, a, b in FULFILLMENT_STAGES}
     inconsistent = F.lit(False)
@@ -234,6 +245,8 @@ def build_fact_order_fulfillment(changes: DataFrame, items: DataFrame, customers
         inconsistent.alias("has_inconsistent_milestones"),
         F.coalesce("item_count", F.lit(0)).cast("int").alias("item_count"),
         "order_value",
+        "review_score",
+        F.coalesce("review_count", F.lit(0)).cast("int").alias("review_count"),
         "last_change_seq",
     )
     content = [c for c in out.columns if c != "order_id"]
@@ -351,7 +364,7 @@ def run(spark: SparkSession, cfg: Config) -> None:
     merge_fact(spark, cfg.table("gold", "fact_order_item"), fact)
 
     fulfillment = build_fact_order_fulfillment(
-        spark.table(cfg.table("silver", "order_changes")), silver["order_items"], silver["customers"]
+        spark.table(cfg.table("silver", "order_changes")), silver["order_items"], silver["customers"], silver["reviews"]
     )
     merge_fact(spark, cfg.table("gold", "fact_order_fulfillment"), fulfillment, ["order_id"])
     inconsistent_milestone_metric(spark.table(cfg.table("gold", "fact_order_fulfillment")), cfg.run_id).write.format(

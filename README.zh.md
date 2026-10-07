@@ -61,8 +61,8 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 | 配送时间早于下单时间 | 3 | `delivered_before_purchase` | 3 |
 | 新字段 `discount_amount` | 314 | `rescued_data` | 314 |
 
-### 测试（`uv run pytest`，共 50 个）
-- **34 个单元测试**：去重、只前进的 CDC、SCD2（幂等、快照中缺失不等于删除、时点关联）、质量规则边界值、契约解析、客户身份归并、mart 的 GMV 口径。
+### 测试（`uv run pytest`，共 51 个）
+- **35 个单元测试**：去重、只前进的 CDC、SCD2（幂等、快照中缺失不等于删除、时点关联）、质量规则边界值、契约解析、客户身份归并、mart 的 GMV 口径。
 - **16 个端到端测试**：回填加回放 6 天，最后一天注入约 12% 的坏行。测试核对每一类异常，检查闸门只拦下被污染的那天、重跑不产生任何变化、下一次运行时 Gold 能追上。
 
 ### 真实数据（Olist，约 10 万订单）的运行结果
@@ -78,6 +78,7 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 | `customer_id` 每个订单生成一个 | 82,406 个 `customer_id` → 79,682 人 | 按 `customer_unique_id` 建客户维度（ADR-0007） |
 | 没有英文翻译的品类 | 13 个商品 | 英文名保留为 NULL，保留原品类名 |
 | 订单各阶段顺序颠倒（付款审核前就交给承运商 559、下单前就交给承运商 46、交接前就送达 23） | 628 个订单（0.76%） | 累积快照把负的时长设为 NULL 并打上标记，计入警告指标（ADR-0009） |
+| 送达延误与客户满意度 | 准时的 71,451 单平均 4.27 星，迟到的 5,505 单平均 2.21 星（64% 是 1–2 星） | 履约事实表加入评分，Dashboard 按迟到程度显示评分（ADR-0009） |
 
 ### 截图（Databricks Free Edition）
 

@@ -72,8 +72,8 @@ reported. The end-to-end tests assert this on every run.
 | delivered before purchase | 3 | `delivered_before_purchase` | 3 |
 | new field `discount_amount` | 314 | `rescued_data` | 314 |
 
-### Tests (`uv run pytest`, 50 tests)
-- **34 unit tests:** de-duplication, forward-only CDC, SCD2 (idempotency, "missing is not
+### Tests (`uv run pytest`, 51 tests)
+- **35 unit tests:** de-duplication, forward-only CDC, SCD2 (idempotency, "missing is not
   deleted", point-in-time join), DQ rule boundaries, contract parsing, customer identity, and
   the mart's GMV definition.
 - **16 end-to-end tests:** a backfill plus 6 replayed days, with the last day poisoned at
@@ -97,6 +97,7 @@ handled:
 | `customer_id` is issued per order | 82,406 `customer_id`s → 79,682 people | Customer dimension per `customer_unique_id` (ADR-0007) |
 | Categories with no English translation | 13 products | English name stays NULL; the original category name is kept |
 | Order milestones out of order (handed to the carrier before payment approval 559, before the purchase 46, delivered before the handoff 23) | 628 orders (0.76%) | The accumulating snapshot sets negative durations to NULL, flags the order and reports a warning metric (ADR-0009) |
+| Delivery delay vs. customer satisfaction | On time: 71,451 orders averaging 4.27 stars; late: 5,505 orders averaging 2.21 (64% are 1–2 stars) | Review score added to the fulfillment fact, score by lateness on the dashboard (ADR-0009) |
 
 ### Screenshots (Databricks Free Edition)
 

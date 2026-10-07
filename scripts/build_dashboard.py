@@ -81,6 +81,19 @@ DATASETS = {
         FROM {C}.olist_gold.fact_daily_order_backlog
         WHERE snapshot_date >= DATE'2017-01-01'
         GROUP BY ALL""",
+    "biz_lateness_score": f"""
+        SELECT CASE
+                 WHEN hours_late <= -168 THEN '1. 7+ days early'
+                 WHEN hours_late <= 0    THEN '2. 0-7 days early'
+                 WHEN hours_late <= 72   THEN '3. 1-3 days late'
+                 WHEN hours_late <= 168  THEN '4. 4-7 days late'
+                 ELSE '5. 8+ days late'
+               END AS lateness,
+               COUNT(*) AS orders,
+               ROUND(AVG(review_score), 2) AS avg_review_score
+        FROM {C}.olist_gold.fact_order_fulfillment
+        WHERE delivered_ts IS NOT NULL AND review_score IS NOT NULL
+        GROUP BY ALL""",
     "biz_top": f"""
         SELECT seller_id, seller_state,
                ROUND(SUM(gmv), 0) AS gmv, SUM(orders) AS orders,
@@ -214,6 +227,9 @@ business_page = [
              "日次の未完了注文（ステータス別）/ Daily open orders by status (fact_daily_order_backlog)",
              ("snapshot_date", "日付", "temporal"), ("open_orders", "未完了の注文", "quantitative"),
              ("order_status", "ステータス", "categorical")), 0, 24, 6, 6),
+    at(chart("biz_lateness_score_bar", "bar", "biz_lateness_score",
+             "配達の遅れとレビュー評価 / Review score by delivery lateness (fact_order_fulfillment)",
+             ("lateness", "配達予定日との差", "categorical"), ("avg_review_score", "平均評価（★）", "quantitative")), 0, 30, 6, 6),
     at(table("biz_top_table", "biz_top", "GMV 上位セラー / Top sellers",
              [("seller_id", "セラー"), ("seller_state", "州"), ("gmv", "GMV"), ("orders", "注文"),
               ("on_time_rate", "定時率"), ("avg_review_score", "評価")]), 3, 11, 3, 7),
