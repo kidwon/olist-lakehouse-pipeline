@@ -98,6 +98,10 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 
 ![业务 Dashboard](docs/images/biz_dashboard.png)
 
+**送达延误与评分**：送达越晚，评分越低。准时送达的订单平均 4.27 星，迟到的只有 2.21 星，迟到订单中 64% 是 1–2 星。比预计提前 7 天以上送达的平均 4.30 星，迟到 8 天以上则降到 1.66 星（`fact_order_fulfillment` 的 `review_score` 和 `hours_late`，ADR-0009）。
+
+![送达延误与评分](docs/images/review_by_lateness.png)
+
 ---
 
 ## 讲解 Notebook（日本語 / English / 中文）

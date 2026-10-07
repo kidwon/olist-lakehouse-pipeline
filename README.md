@@ -98,6 +98,10 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 
 ![業務ダッシュボード](docs/images/biz_dashboard.png)
 
+**配達の遅れとレビュー評価**：遅れるほど評価は下がります。定時に届いた注文の平均は 4.27、遅れた注文は 2.21 で、遅れた注文の 64% が1〜2つ星です。予定より7日以上早い配達は 4.30、8日以上遅れると 1.66 まで落ちます（`fact_order_fulfillment` の `review_score` と `hours_late`、ADR-0009）。
+
+![配達の遅れとレビュー評価](docs/images/review_by_lateness.png)
+
 ---
 
 ## ウォークスルー・ノートブック（日本語 / English / 中文）

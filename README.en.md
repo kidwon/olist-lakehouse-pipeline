@@ -122,6 +122,13 @@ state comes from the SCD2 `dim_seller` as of the order date. The dashboard is ge
 
 ![Business dashboard](docs/images/biz_dashboard.png)
 
+**Review score by delivery lateness:** the later the delivery, the lower the score. On-time
+orders average 4.27 stars and late ones 2.21, with 64% of late orders rated 1–2 stars. Deliveries
+7+ days early score 4.30; 8+ days late drops to 1.66 (`review_score` and `hours_late` on
+`fact_order_fulfillment`, ADR-0009).
+
+![Review score by delivery lateness](docs/images/review_by_lateness.png)
+
 ---
 
 ## Walkthrough notebooks (日本語 / English / 中文)
