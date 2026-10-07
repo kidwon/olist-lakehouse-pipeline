@@ -15,6 +15,7 @@ from delta.tables import DeltaTable
 from pyspark.sql import DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
 
+from . import incremental as inc
 from .config import Config
 
 FACT_KEYS = ["order_id", "order_item_id"]
@@ -360,6 +361,70 @@ def merge_fact(
     merge.execute()
 
 
+def _only(df: DataFrame, ids: DataFrame | None) -> DataFrame:
+    """Rows of `df` belonging to the changed orders (all rows on a full rebuild)."""
+    return df if ids is None else df.join(F.broadcast(ids), "order_id", "left_semi")
+
+
+def _orders_of_customers(orders: DataFrame):
+    return lambda ch: ch.select("customer_id").join(orders.select("order_id", "customer_id"), "customer_id")
+
+
+def _orders_of_sellers(items: DataFrame):
+    return lambda ch: ch.select("seller_id").distinct().join(items.select("order_id", "seller_id"), "seller_id")
+
+
+def _run_incremental(spark, cfg, target, sources, mapping, build_and_merge) -> None:
+    """Plan, rebuild the changed orders (or everything), MERGE, then move the watermarks."""
+    p = inc.plan(spark, cfg, target, list(sources.values()), cfg.full_refresh)
+    ids = None
+    if p.mode == "incremental":
+        ids = inc.changed_order_ids(p, {sources[k]: fn for k, fn in mapping.items()})
+    total = spark.table(cfg.table("silver", "orders")).count()
+    processed = total if p.mode == "full" else (0 if ids is None else ids.count())
+    if p.mode == "full" or processed > 0:
+        build_and_merge(ids)
+    inc.save_watermarks(spark, cfg, target, p.versions)
+    inc.record_stats(spark, cfg, target, p, processed, total)
+
+
+def run_fact_order_item(spark: SparkSession, cfg: Config) -> None:
+    """Transaction fact, rebuilt only for orders whose items, status, customer or seller changed."""
+    t = {n: cfg.table("silver", n) for n in ["order_items", "orders", "customers", "seller_history"]}
+    items, orders = spark.table(t["order_items"]), spark.table(t["orders"])
+
+    def build_and_merge(ids):
+        fact = build_fact_order_item(_only(items, ids), _only(orders, ids), spark.table(t["customers"]), spark.table(t["seller_history"]))
+        merge_fact(spark, cfg.table("gold", "fact_order_item"), fact)
+
+    _run_incremental(spark, cfg, cfg.table("gold", "fact_order_item"), t, {
+        "order_items": lambda ch: ch.select("order_id"),
+        "orders": lambda ch: ch.select("order_id"),
+        "customers": _orders_of_customers(orders),
+        "seller_history": _orders_of_sellers(items),
+    }, build_and_merge)
+
+
+def run_fact_order_fulfillment(spark: SparkSession, cfg: Config) -> None:
+    """Accumulating snapshot, rebuilt only for orders with a new change, item, review or customer update."""
+    t = {n: cfg.table("silver", n) for n in ["order_changes", "order_items", "customers", "reviews"]}
+    orders = spark.table(cfg.table("silver", "orders"))
+
+    def build_and_merge(ids):
+        fact = build_fact_order_fulfillment(
+            _only(spark.table(t["order_changes"]), ids), _only(spark.table(t["order_items"]), ids),
+            spark.table(t["customers"]), _only(spark.table(t["reviews"]), ids),
+        )
+        merge_fact(spark, cfg.table("gold", "fact_order_fulfillment"), fact, ["order_id"])
+
+    _run_incremental(spark, cfg, cfg.table("gold", "fact_order_fulfillment"), t, {
+        "order_changes": lambda ch: ch.select("order_id"),
+        "order_items": lambda ch: ch.select("order_id"),
+        "customers": _orders_of_customers(orders),
+        "reviews": lambda ch: ch.select("order_id"),
+    }, build_and_merge)
+
+
 def run(spark: SparkSession, cfg: Config) -> None:
     silver = {n: spark.table(cfg.table("silver", n)) for n in ["order_items", "orders", "customers", "products", "reviews", "seller_history"]}
 
@@ -369,13 +434,8 @@ def run(spark: SparkSession, cfg: Config) -> None:
     _overwrite(silver["products"].drop("_batch_date", "_source_file", "_ingested_at"), cfg.table("gold", "dim_product"))
     _overwrite(silver["seller_history"].drop("attr_hash"), cfg.table("gold", "dim_seller"))
 
-    fact = build_fact_order_item(silver["order_items"], silver["orders"], silver["customers"], silver["seller_history"])
-    merge_fact(spark, cfg.table("gold", "fact_order_item"), fact)
-
-    fulfillment = build_fact_order_fulfillment(
-        spark.table(cfg.table("silver", "order_changes")), silver["order_items"], silver["customers"], silver["reviews"]
-    )
-    merge_fact(spark, cfg.table("gold", "fact_order_fulfillment"), fulfillment, ["order_id"])
+    run_fact_order_item(spark, cfg)
+    run_fact_order_fulfillment(spark, cfg)
     inconsistent_milestone_metric(spark.table(cfg.table("gold", "fact_order_fulfillment")), cfg.run_id).write.format(
         "delta"
     ).mode("append").saveAsTable(cfg.table("ops", "dq_metrics"))

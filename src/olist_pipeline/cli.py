@@ -96,6 +96,7 @@ def build_config(args: argparse.Namespace) -> Config:
         kwargs["backfill_date"] = dt.date.fromisoformat(args.backfill_date)
     if args.poison_date:
         kwargs["poison_date"] = dt.date.fromisoformat(args.poison_date)
+    kwargs["full_refresh"] = args.full_refresh == "true"
     return Config(**kwargs)
 
 
@@ -112,6 +113,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--backfill-date")
     p.add_argument("--replay-days", type=int, default=10)
     p.add_argument("--poison-date")
+    p.add_argument("--full-refresh", choices=["true", "false"], default="false",
+                   help="rebuild incremental gold facts in full instead of only the changed orders")
     args = p.parse_args(argv)
 
     cfg = build_config(args)

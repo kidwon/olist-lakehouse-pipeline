@@ -28,6 +28,8 @@ class Config:
     seed: int = 42
     # Optional date whose batch is deliberately poisoned to demonstrate the DQ gate.
     poison_date: dt.date | None = None
+    # Rebuild incremental gold facts from all of silver instead of only the changed orders.
+    full_refresh: bool = False
 
     # --- data quality policy (see ADR-0004 / ADR-0005) ----------------------
     late_tolerance_days: int = 3

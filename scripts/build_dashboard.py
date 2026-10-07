@@ -46,6 +46,11 @@ DATASETS = {
         SELECT batch_date, table_name, array_join(failed_rules, ', ') AS rules, record
         FROM {C}.olist_ops.quarantine
         ORDER BY quarantined_at DESC""",
+    "ops_incremental": f"""
+        SELECT measured_at, replace(target, '{C}.olist_gold.', '') AS fact, mode,
+               processed_orders, total_orders,
+               processed_orders / total_orders AS processed_share
+        FROM {C}.olist_ops.gold_incremental_stats""",
     "kpi_biz": f"""
         SELECT ROUND(SUM(CASE WHEN NOT is_cancelled THEN price END) / 1e6, 2) AS gmv_millions,
                COUNT(DISTINCT order_id) AS orders,
@@ -199,6 +204,10 @@ quality_page = [
     at(table("dq_quarantine_table", "dq_quarantine", "隔離レコード / Quarantined records",
              [("batch_date", "バッチ日"), ("table_name", "テーブル"), ("rules", "違反ルール"), ("record", "レコード")]),
        0, 24, 6, 7),
+    at(chart("ops_incremental_line", "line", "ops_incremental",
+             "増分処理：各実行で再計算した注文の割合 / Share of orders rebuilt per run (Change Data Feed)",
+             ("measured_at", "実行日時", "temporal"), ("processed_share", "再計算した割合", "quantitative", PCT),
+             ("fact", "ファクト", "categorical")), 0, 31, 6, 6),
 ]
 
 business_page = [

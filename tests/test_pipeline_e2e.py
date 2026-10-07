@@ -216,3 +216,29 @@ def test_every_fulfillment_date_key_resolves_in_dim_date(run):
         assert fact.where(F.col(k).isNull()).count() == 0, k
         assert fact.select(F.col(k).alias("date_key")).join(dates, "date_key", "left_anti").count() == 0, k
     assert fact.where(F.col("delivered_date_key") == -1).count() == fact.where("delivered_ts IS NULL").count() > 0
+
+
+def test_incremental_gold_equals_a_full_rebuild(run):
+    """The guarantee behind ADR-0011: after many incremental runs (including the gate-blocked day and
+    the catch-up run), each fact holds exactly what a full rebuild from silver would produce."""
+    spark, cfg, *_ = run
+    s = lambda n: spark.table(cfg.table("silver", n))
+    expected = {
+        "fact_order_item": gold.build_fact_order_item(s("order_items"), s("orders"), s("customers"), s("seller_history")),
+        "fact_order_fulfillment": gold.build_fact_order_fulfillment(s("order_changes"), s("order_items"), s("customers"), s("reviews")),
+    }
+    for name, full in expected.items():
+        actual = spark.table(cfg.table("gold", name)).select(*full.columns)
+        assert actual.exceptAll(full).count() == 0, name
+        assert full.exceptAll(actual).count() == 0, name
+
+
+def test_gold_ran_incrementally_after_the_first_build(run):
+    spark, cfg, *_ = run
+    stats = spark.table(cfg.table("ops", "gold_incremental_stats"))
+    for target in ["fact_order_item", "fact_order_fulfillment"]:
+        rows = stats.where(F.col("target") == cfg.table("gold", target)).orderBy("measured_at").collect()
+        assert rows[0].mode == "full"  # nothing to compare against on the very first run
+        later = [r for r in rows[1:] if r.mode == "incremental"]
+        assert later and all(r.processed_orders < r.total_orders for r in later)
+        assert any(r.processed_orders > 0 for r in later)

@@ -31,6 +31,9 @@ resources:
       parameters:
         - name: batch_date
           default: next
+        # "true" rebuilds the incremental gold facts from all of silver (ADR-0011).
+        - name: full_refresh
+          default: "false"
       schedule:
         quartz_cron_expression: "0 0 6 * * ?"
         timezone_id: Asia/Tokyo
@@ -76,7 +79,7 @@ resources:
           python_wheel_task:
             package_name: olist_pipeline
             entry_point: olist
-            parameters: ["gold", "--env", "databricks", "--run-id", "{{job.run_id}}"]
+            parameters: ["gold", "--env", "databricks", "--run-id", "{{job.run_id}}", "--full-refresh", "{{job.parameters.full_refresh}}"]
         - task_key: mart
           depends_on: [{ task_key: gold }]
           environment_key: default

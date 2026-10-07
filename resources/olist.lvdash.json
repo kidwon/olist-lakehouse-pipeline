@@ -64,6 +64,16 @@
       ]
     },
     {
+      "name": "ops_incremental",
+      "displayName": "ops_incremental",
+      "queryLines": [
+        "SELECT measured_at, replace(target, 'workspace.olist_gold.', '') AS fact, mode,\n",
+        "processed_orders, total_orders,\n",
+        "processed_orders / total_orders AS processed_share\n",
+        "FROM workspace.olist_ops.gold_incremental_stats\n"
+      ]
+    },
+    {
       "name": "kpi_biz",
       "displayName": "kpi_biz",
       "queryLines": [
@@ -655,6 +665,78 @@
             "y": 24,
             "width": 6,
             "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "ops_incremental_line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ops_incremental",
+                  "fields": [
+                    {
+                      "name": "measured_at",
+                      "expression": "`measured_at`"
+                    },
+                    {
+                      "name": "processed_share",
+                      "expression": "`processed_share`"
+                    },
+                    {
+                      "name": "fact",
+                      "expression": "`fact`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "measured_at",
+                  "displayName": "実行日時",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "processed_share",
+                  "displayName": "再計算した割合",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "fact",
+                  "displayName": "ファクト",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "増分処理：各実行で再計算した注文の割合 / Share of orders rebuilt per run (Change Data Feed)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 31,
+            "width": 6,
+            "height": 6
           }
         }
       ]

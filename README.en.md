@@ -47,6 +47,7 @@ Databricks job (`resources/olist_jobs.yml`, serverless):
 
 More decisions: [accumulating snapshot for order fulfillment](docs/adr/en/0009-accumulating-snapshot-fulfillment.md),
 [periodic snapshot of the daily order backlog](docs/adr/en/0010-periodic-snapshot-backlog.md),
+[incremental gold with Change Data Feed](docs/adr/en/0011-incremental-gold-cdf.md),
 [data contracts and `_rescued_data`](docs/adr/en/0006-data-contracts-and-rescued-data.md),
 [customer identity (`customer_unique_id`)](docs/adr/en/0007-customer-identity.md),
 [imperative vs. declarative (Lakeflow)](docs/adr/en/0008-imperative-vs-declarative.md)
@@ -72,11 +73,11 @@ reported. The end-to-end tests assert this on every run.
 | delivered before purchase | 3 | `delivered_before_purchase` | 3 |
 | new field `discount_amount` | 314 | `rescued_data` | 314 |
 
-### Tests (`uv run pytest`, 53 tests)
-- **37 unit tests:** de-duplication, forward-only CDC, SCD2 (idempotency, "missing is not
+### Tests (`uv run pytest`, 61 tests)
+- **43 unit tests:** de-duplication, forward-only CDC, SCD2 (idempotency, "missing is not
   deleted", point-in-time join), DQ rule boundaries, contract parsing, customer identity, and
   the mart's GMV definition.
-- **16 end-to-end tests:** a backfill plus 6 replayed days, with the last day poisoned at
+- **18 end-to-end tests:** a backfill plus 6 replayed days, with the last day poisoned at
   about 12% bad rows. They reconcile every anomaly, check that the gate blocks only the
   poisoned day, check that a rerun changes nothing, and check that gold catches up on the
   next run.
@@ -133,7 +134,7 @@ orders average 4.27 stars and late ones 2.21, with 64% of late orders rated 1–
 
 ## Walkthrough notebooks (日本語 / English / 中文)
 
-[`notebooks/walkthrough/`](notebooks/walkthrough/) holds eight notebooks, one per layer. Each imports
+[`notebooks/walkthrough/`](notebooks/walkthrough/) holds nine notebooks, one per layer. Each imports
 the production functions directly and runs them on a few hand-written rows: change an input,
 rerun, see the behaviour. Each ends with "Try it yourself" and "In the interview". CI runs every
 notebook, so the explanations cannot drift from the code.
@@ -149,6 +150,7 @@ notebook, so the explanations cannot drift from the code.
 | [`06_gold`](notebooks/walkthrough/06_gold.py) | Star schema, customer identity, GMV definition |
 | [`07_fulfillment`](notebooks/walkthrough/07_fulfillment.py) | Accumulating snapshot, right-censoring |
 | [`08_backlog`](notebooks/walkthrough/08_backlog.py) | Periodic snapshot, late data restating past days |
+| [`09_incremental`](notebooks/walkthrough/09_incremental.py) | Incremental gold with Change Data Feed, equal to a full rebuild |
 
 ---
 
@@ -168,6 +170,7 @@ notebook, so the explanations cannot drift from the code.
 | Gold | `olist_gold.dim_{date, customer, product, seller}` | dimensions; customers are per `customer_unique_id` |
 | Gold | `olist_gold.mart_seller_delivery_performance` | seller × month: GMV, on-time rate, review score |
 | Ops | `olist_ops.{dq_metrics, quarantine, dq_gate_log, replay_manifest}` | quality metrics, quarantine, gate decisions, replay plan (ground truth) |
+| Ops | `olist_ops.{gold_watermarks, gold_incremental_stats}` | incremental gold: last processed version per source, orders rebuilt per run |
 
 ---
 
@@ -213,7 +216,6 @@ docs/adr/        architecture decision records (Japanese / English / Chinese)
 ```
 
 ## Next steps
-- Use Change Data Feed to limit the gold MERGE source to changed keys
 - The same spec on Lakeflow Declarative Pipelines, for comparison
 
 ---
