@@ -13,7 +13,7 @@ from pyspark.sql import Window
 from pyspark.sql import functions as F
 
 from olist_fixture import write_fixture
-from olist_pipeline import cli, gold
+from olist_pipeline import cli, gold, replay
 from olist_pipeline.config import Config
 
 BACKFILL = dt.date(2018, 5, 31)
@@ -242,3 +242,10 @@ def test_gold_ran_incrementally_after_the_first_build(run):
         later = [r for r in rows[1:] if r.mode == "incremental"]
         assert later and all(r.processed_orders < r.total_orders for r in later)
         assert any(r.processed_orders > 0 for r in later)
+
+
+def test_preparing_again_cannot_reset_a_started_replay(run):
+    """Re-running setup must not silently re-deliver batches (that once rolled seller history back)."""
+    spark, cfg, *_ = run
+    with pytest.raises(replay.ReplayAlreadyStarted):
+        replay.prepare(spark, cfg)

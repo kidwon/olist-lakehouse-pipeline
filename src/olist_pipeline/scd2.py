@@ -53,7 +53,30 @@ def stage_changes(current: DataFrame, snapshot: DataFrame, snapshot_date: dt.dat
     return closes.unionByName(inserts).withColumn("seller_sk", F.xxhash64(KEY, "valid_from"))
 
 
-def apply_snapshot(spark: SparkSession, target_name: str, snapshot: DataFrame, snapshot_date: dt.date) -> None:
+LAST_SNAPSHOT_PROPERTY = "olist.last_snapshot_date"
+
+
+def last_applied_snapshot(spark: SparkSession, target_name: str) -> dt.date | None:
+    """The latest snapshot already applied. Tables from before this property existed fall back
+    to the latest real version start (first versions start at BEGINNING_OF_TIME)."""
+    props = {r["key"]: r["value"] for r in spark.sql(f"SHOW TBLPROPERTIES {target_name}").collect()}
+    if LAST_SNAPSHOT_PROPERTY in props:
+        return dt.date.fromisoformat(props[LAST_SNAPSHOT_PROPERTY])
+    latest = spark.table(target_name).where(F.col("valid_from") > F.lit(BEGINNING_OF_TIME)).agg(F.max("valid_from")).first()[0]
+    return latest
+
+
+def apply_snapshot(spark: SparkSession, target_name: str, snapshot: DataFrame, snapshot_date: dt.date) -> bool:
+    """Apply one snapshot; returns False when it was skipped as not newer than the last one.
+
+    Snapshots must move forward in time. A re-delivered or late older snapshot would otherwise
+    look like a change and roll sellers back to old addresses (found by reconciling with the
+    Lakeflow version, ADR-0012), so it is ignored.
+    """
+    if spark.catalog.tableExists(target_name):
+        last = last_applied_snapshot(spark, target_name)
+        if last is not None and snapshot_date <= last:
+            return False
     if not spark.catalog.tableExists(target_name):
         empty = snapshot.select(KEY, *TRACKED).limit(0).select(
             F.lit(None).cast("long").alias("seller_sk"), KEY, *TRACKED,
@@ -80,6 +103,8 @@ def apply_snapshot(spark: SparkSession, target_name: str, snapshot: DataFrame, s
         })
         .execute()
     )
+    spark.sql(f"ALTER TABLE {target_name} SET TBLPROPERTIES ('{LAST_SNAPSHOT_PROPERTY}' = '{snapshot_date.isoformat()}')")
+    return True
 
 
 def run(spark: SparkSession, cfg: Config) -> None:

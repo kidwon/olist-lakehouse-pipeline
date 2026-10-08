@@ -310,7 +310,21 @@ def inject_order_anomalies(orders: DataFrame, cfg: Config) -> DataFrame:
 # ---------------------------------------------------------------------------
 # entry points
 # ---------------------------------------------------------------------------
-def prepare(spark: SparkSession, cfg: Config) -> None:
+class ReplayAlreadyStarted(RuntimeError):
+    pass
+
+
+def prepare(spark: SparkSession, cfg: Config, force: bool = False) -> None:
+    """Build the replay plan. Refuses to reset a replay that has already delivered batches:
+    re-delivering them would feed old snapshots and duplicates into the pipeline."""
+    manifest = cfg.table("ops", "replay_manifest")
+    if not force and spark.catalog.tableExists(manifest):
+        delivered = spark.table(manifest).where("delivered_at IS NOT NULL").select("batch_date").distinct().count()
+        if delivered:
+            raise ReplayAlreadyStarted(
+                f"{delivered} batches of the replay were already delivered; preparing again would reset them "
+                "and re-deliver old files. Pass --force to start the replay over on purpose."
+            )
     raw = {k: _read_csv(spark, cfg, k) for k in SOURCE_FILES}
     staged = {
         "orders_cdc": inject_order_anomalies(build_orders_cdc(raw["orders"], cfg), cfg),

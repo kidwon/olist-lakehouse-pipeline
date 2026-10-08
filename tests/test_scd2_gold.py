@@ -114,3 +114,25 @@ def test_dim_date_has_one_row_per_day_plus_not_yet(spark):
     assert d.where(F.col("date_key") == 20180601).first().year_month == "2018-06"
     not_yet = d.where(F.col("date_key") == gold.NOT_YET).collect()
     assert len(not_yet) == 1 and not_yet[0].date is None and not_yet[0].date_label == "not yet happened"
+
+
+def test_an_older_snapshot_arriving_later_is_ignored(spark, table_name):
+    """Re-delivering the backfill snapshot must not roll a relocated seller back to the old city."""
+    first = snapshot(spark, [("s1", "1", "sao paulo", "SP")])
+    moved = snapshot(spark, [("s1", "1", "curitiba", "PR")])
+    assert scd2.apply_snapshot(spark, table_name, first, D1)
+    assert scd2.apply_snapshot(spark, table_name, moved, D3)
+    assert not scd2.apply_snapshot(spark, table_name, first, D1)  # the old snapshot, delivered again
+    assert not scd2.apply_snapshot(spark, table_name, first, D2)  # older than the last applied one
+    h = spark.table(table_name)
+    assert h.count() == 2
+    current = h.where("is_current").first()
+    assert (current.seller_city, current.valid_from) == ("curitiba", D3)
+    assert h.where("valid_to < valid_from").count() == 0
+
+
+def test_tables_without_the_property_fall_back_to_the_latest_version_start(spark, table_name):
+    scd2.apply_snapshot(spark, table_name, snapshot(spark, [("s1", "1", "a", "SP")]), D1)
+    scd2.apply_snapshot(spark, table_name, snapshot(spark, [("s1", "1", "b", "SP")]), D3)
+    spark.sql(f"ALTER TABLE {table_name} UNSET TBLPROPERTIES ('{scd2.LAST_SNAPSHOT_PROPERTY}')")
+    assert scd2.last_applied_snapshot(spark, table_name) == D3

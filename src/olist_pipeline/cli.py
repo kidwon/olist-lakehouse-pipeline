@@ -113,6 +113,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--backfill-date")
     p.add_argument("--replay-days", type=int, default=10)
     p.add_argument("--poison-date")
+    p.add_argument("--force", action="store_true", help="prepare: reset a replay that already delivered batches")
     p.add_argument("--full-refresh", choices=["true", "false"], default="false",
                    help="rebuild incremental gold facts in full instead of only the changed orders")
     args = p.parse_args(argv)
@@ -121,7 +122,7 @@ def main(argv: list[str] | None = None) -> None:
     spark = get_spark(cfg)
     tasks = {
         "setup": lambda: setup(spark, cfg),
-        "prepare": lambda: replay.prepare(spark, cfg),
+        "prepare": lambda: replay.prepare(spark, cfg, force=args.force),
         "replay": lambda: replay_next(spark, cfg, args.batch_date),
         "bronze": lambda: bronze.run(spark, cfg),
         "silver": lambda: silver.run(spark, cfg),
