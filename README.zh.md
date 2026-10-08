@@ -40,7 +40,7 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 | **迟到数据**（算在哪一天？） | 按销售发生日归日；迟到 3 天以内通过 MERGE 回溯修正 Gold，超过 3 天进隔离区 | [ADR-0004](docs/adr/zh/0004-late-data.md) | `add_lateness`, `merge_fact` | `test_late_items_are_accepted_and_dated_by_the_sale` |
 | **数据质量**（坏行去哪、谁会发现、何时停止） | 按规则隔离并记录指标；单次运行的坏行比例超过 5% 时不发布 Gold | [ADR-0005](docs/adr/zh/0005-data-quality-gate.md) | [quality.py](src/olist_pipeline/quality.py), [gate.py](src/olist_pipeline/gate.py) | `test_gate_blocked_only_the_poisoned_run` |
 
-其他决策：[订单履约的累积快照](docs/adr/zh/0009-accumulating-snapshot-fulfillment.md)、[每日订单积压的周期快照](docs/adr/zh/0010-periodic-snapshot-backlog.md)、[用 Change Data Feed 增量处理 Gold](docs/adr/zh/0011-incremental-gold-cdf.md)、[数据契约与 `_rescued_data`](docs/adr/zh/0006-data-contracts-and-rescued-data.md)、[客户身份归并（`customer_unique_id`）](docs/adr/zh/0007-customer-identity.md)、[命令式与声明式（Lakeflow）的对比](docs/adr/zh/0008-imperative-vs-declarative.md)
+其他决策：[订单履约的累积快照](docs/adr/zh/0009-accumulating-snapshot-fulfillment.md)、[每日订单积压的周期快照](docs/adr/zh/0010-periodic-snapshot-backlog.md)、[用 Change Data Feed 增量处理 Gold](docs/adr/zh/0011-incremental-gold-cdf.md)、[与 Lakeflow 版本的对比](docs/adr/zh/0012-lakeflow-comparison.md)、[数据契约与 `_rescued_data`](docs/adr/zh/0006-data-contracts-and-rescued-data.md)、[客户身份归并（`customer_unique_id`）](docs/adr/zh/0007-customer-identity.md)、[命令式与声明式（Lakeflow）的对比](docs/adr/zh/0008-imperative-vs-declarative.md)
 
 ---
 
@@ -61,9 +61,9 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 | 配送时间早于下单时间 | 3 | `delivered_before_purchase` | 3 |
 | 新字段 `discount_amount` | 314 | `rescued_data` | 314 |
 
-### 测试（`uv run pytest`，共 61 个）
-- **43 个单元测试**：去重、只前进的 CDC、SCD2（幂等、快照中缺失不等于删除、时点关联）、质量规则边界值、契约解析、客户身份归并、mart 的 GMV 口径。
-- **18 个端到端测试**：回填加回放 6 天，最后一天注入约 12% 的坏行。测试核对每一类异常，检查闸门只拦下被污染的那天、重跑不产生任何变化、下一次运行时 Gold 能追上。
+### 测试（`uv run pytest`，共 64 个）
+- **45 个单元测试**：去重、只前进的 CDC、SCD2（幂等、快照中缺失不等于删除、时点关联）、质量规则边界值、契约解析、客户身份归并、mart 的 GMV 口径。
+- **19 个端到端测试**：回填加回放 6 天，最后一天注入约 12% 的坏行。测试核对每一类异常，检查闸门只拦下被污染的那天、重跑不产生任何变化、下一次运行时 Gold 能追上。
 
 ### 真实数据（Olist，约 10 万订单）的运行结果
 
@@ -106,7 +106,7 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 
 ## 讲解 Notebook（日本語 / English / 中文）
 
-[`notebooks/walkthrough/`](notebooks/walkthrough/) 里有 9 个按层讲解的 notebook。每个都直接导入生产代码的函数，在几行手写数据上运行：改一下输入、重跑，就能看到行为。每个 notebook 最后都有"自己试试"和"面试时怎么说"。CI 每次都会运行全部 notebook，所以讲解不会和代码脱节。
+[`notebooks/walkthrough/`](notebooks/walkthrough/) 里有 10 个按层讲解的 notebook。每个都直接导入生产代码的函数，在几行手写数据上运行：改一下输入、重跑，就能看到行为。每个 notebook 最后都有"自己试试"和"面试时怎么说"。CI 每次都会运行全部 notebook，所以讲解不会和代码脱节。
 
 | Notebook | 内容 |
 |---|---|
@@ -120,6 +120,7 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 | [`07_fulfillment`](notebooks/walkthrough/07_fulfillment.py) | 累积快照、右删失 |
 | [`08_backlog`](notebooks/walkthrough/08_backlog.py) | 周期快照、迟到数据修正过去 |
 | [`09_incremental`](notebooks/walkthrough/09_incremental.py) | 用 Change Data Feed 增量处理，结果与全量重建一致 |
+| [`10_lakeflow_comparison`](notebooks/walkthrough/10_lakeflow_comparison.py) | 与 Lakeflow 版本的核对（仅限 Databricks） |
 
 ---
 
@@ -139,6 +140,7 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 | Gold | `olist_gold.dim_{date, customer, product, seller}` | 维度表；客户按 `customer_unique_id` 归并 |
 | Gold | `olist_gold.mart_seller_delivery_performance` | 卖家 × 月：GMV、准时交付率、平均评分 |
 | Ops | `olist_ops.{dq_metrics, quarantine, dq_gate_log, replay_manifest}` | 质量指标、隔离区、闸门判定、回放计划（标准答案） |
+| Lakeflow | `olist_sdp.*` | 用声明式实现同一规格的参考版本（`lakeflow/`，用于核对，ADR-0012） |
 | Ops | `olist_ops.{gold_watermarks, gold_incremental_stats}` | Gold 增量处理：每张源表已处理的版本、每次运行重建的订单数 |
 
 ---
@@ -162,6 +164,7 @@ databricks auth login --host https://<your-workspace>.cloud.databricks.com
 ./scripts/download_olist.sh
 ./scripts/deploy_databricks.sh                  # 上传到 Volume → bundle deploy → 运行 olist_setup
 databricks bundle run olist_daily               # 每次运行投递并处理一天（重复 10 次）
+databricks bundle run olist_sdp                 # Lakeflow 版本（同一批投递文件，用于对比，ADR-0012）
 ```
 
 ---
@@ -183,9 +186,6 @@ tests/           单元测试、端到端测试、合成的 Olist 测试数据
 resources/       Databricks Asset Bundle 的 Job 定义
 docs/adr/        设计决策记录（日文 / 英文 / 中文）
 ```
-
-## 下一步
-- 用 Lakeflow Declarative Pipelines 实现同一套规格，并做对比
 
 ---
 

@@ -93,5 +93,6 @@
 # MAGIC 7. `07_fulfillment`: accumulating snapshot of order fulfillment / 订单履约的累积快照 / 注文フルフィルメントの累積スナップショット
 # MAGIC 8. `08_backlog`: periodic snapshot of the daily order backlog / 每日订单积压的周期快照 / 日次注文残の定期スナップショット
 # MAGIC 9. `09_incremental`: incremental gold with Change Data Feed / 用 CDF 增量处理 Gold / Change Data Feed による Gold の増分処理
+# MAGIC 10. `10_lakeflow_comparison`: the same spec in Lakeflow, reconciled / 与 Lakeflow 版本的核对 / Lakeflow 版との突き合わせ
 # MAGIC
 # MAGIC The design decisions behind each step are in `docs/adr/` (ja / en / zh).

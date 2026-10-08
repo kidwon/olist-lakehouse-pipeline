@@ -1,0 +1,19 @@
+resources:
+  pipelines:
+    # The same spec as the imperative jobs, declaratively (Lakeflow Spark Declarative Pipelines,
+    # ADR-0012). Triggered, not continuous: Free Edition allows one active pipeline per type.
+    olist_sdp:
+      name: olist_sdp
+      catalog: workspace
+      schema: olist_sdp
+      serverless: true
+      continuous: false
+      channel: CURRENT
+      libraries:
+        - file:
+            path: ../lakeflow/olist_sdp.sql
+        - file:
+            path: ../lakeflow/sellers_scd2.py
+      configuration:
+        olist.landing: /Volumes/workspace/olist_raw/files/landing
+        olist.backfill_date: "2018-05-31"
