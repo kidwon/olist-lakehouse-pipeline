@@ -3,6 +3,10 @@ resources:
     # One-off: create schemas and build the replay plan from the raw Olist CSVs in the Volume.
     olist_setup:
       name: olist_setup
+      # Fail loudly: a stuck or failed run mails whoever deployed the bundle.
+      timeout_seconds: 3600
+      email_notifications:
+        on_failure: ["${workspace.current_user.userName}"]
       tasks:
         - task_key: setup
           environment_key: default
@@ -28,6 +32,10 @@ resources:
     olist_daily:
       name: olist_daily
       max_concurrent_runs: 1
+      # Fail loudly: a stuck or failed run mails whoever deployed the bundle.
+      timeout_seconds: 3600
+      email_notifications:
+        on_failure: ["${workspace.current_user.userName}"]
       parameters:
         - name: batch_date
           default: next
@@ -38,6 +46,8 @@ resources:
         quartz_cron_expression: "0 0 6 * * ?"
         timezone_id: Asia/Tokyo
         pause_status: PAUSED
+      # Idempotent steps retry once; replay_batch (advances the manifest, so a retry with
+      # batch_date=next could skip a day) and dq_gate (a data failure fails again) do not.
       tasks:
         - task_key: replay_batch
           environment_key: default
@@ -46,6 +56,8 @@ resources:
             entry_point: olist
             parameters: ["replay", "--env", "databricks", "--run-id", "{{job.run_id}}", "--batch-date", "{{job.parameters.batch_date}}"]
         - task_key: bronze
+          max_retries: 1
+          min_retry_interval_millis: 60000
           depends_on: [{ task_key: replay_batch }]
           environment_key: default
           python_wheel_task:
@@ -53,6 +65,8 @@ resources:
             entry_point: olist
             parameters: ["bronze", "--env", "databricks", "--run-id", "{{job.run_id}}"]
         - task_key: silver
+          max_retries: 1
+          min_retry_interval_millis: 60000
           depends_on: [{ task_key: bronze }]
           environment_key: default
           python_wheel_task:
@@ -60,6 +74,8 @@ resources:
             entry_point: olist
             parameters: ["silver", "--env", "databricks", "--run-id", "{{job.run_id}}"]
         - task_key: dim_seller_scd2
+          max_retries: 1
+          min_retry_interval_millis: 60000
           depends_on: [{ task_key: silver }]
           environment_key: default
           python_wheel_task:
@@ -74,6 +90,8 @@ resources:
             entry_point: olist
             parameters: ["gate", "--env", "databricks", "--run-id", "{{job.run_id}}"]
         - task_key: gold
+          max_retries: 1
+          min_retry_interval_millis: 60000
           depends_on: [{ task_key: dq_gate }]
           environment_key: default
           python_wheel_task:
@@ -81,6 +99,8 @@ resources:
             entry_point: olist
             parameters: ["gold", "--env", "databricks", "--run-id", "{{job.run_id}}", "--full-refresh", "{{job.parameters.full_refresh}}"]
         - task_key: mart
+          max_retries: 1
+          min_retry_interval_millis: 60000
           depends_on: [{ task_key: gold }]
           environment_key: default
           python_wheel_task:

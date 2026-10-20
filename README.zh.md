@@ -106,7 +106,7 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 
 ## 讲解 Notebook（日本語 / English / 中文）
 
-[`notebooks/walkthrough/`](notebooks/walkthrough/) 里有 10 个按层讲解的 notebook。每个都直接导入生产代码的函数，在几行手写数据上运行：改一下输入、重跑，就能看到行为。每个 notebook 最后都有"自己试试"和"面试时怎么说"。CI 每次都会运行全部 notebook，所以讲解不会和代码脱节。
+[`notebooks/walkthrough/`](notebooks/walkthrough/) 里有 11 个 notebook：一个总览、每层一个讲解，以及 Lakeflow 对比。每个都直接导入生产代码的函数，在几行手写数据上运行：改一下输入、重跑，就能看到行为。每个 notebook 最后都有"自己试试"和"面试时怎么说"。CI 每次都会运行全部 notebook，所以讲解不会和代码脱节。
 
 | Notebook | 内容 |
 |---|---|

@@ -135,7 +135,7 @@ orders average 4.27 stars and late ones 2.21, with 64% of late orders rated 1–
 
 ## Walkthrough notebooks (日本語 / English / 中文)
 
-[`notebooks/walkthrough/`](notebooks/walkthrough/) holds ten notebooks, one per layer. Each imports
+[`notebooks/walkthrough/`](notebooks/walkthrough/) holds eleven notebooks: an overview, one per layer, and the Lakeflow comparison. Each imports
 the production functions directly and runs them on a few hand-written rows: change an input,
 rerun, see the behaviour. Each ends with "Try it yourself" and "In the interview". CI runs every
 notebook, so the explanations cannot drift from the code.
