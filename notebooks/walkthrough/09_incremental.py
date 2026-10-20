@@ -23,9 +23,8 @@
 import datetime as dt
 from decimal import Decimal
 
-from pyspark.sql import functions as F
-
 from walkthrough_setup import fresh_table, setup
+
 from olist_pipeline import gold
 from olist_pipeline.config import Config
 
@@ -35,15 +34,31 @@ catalog, schema_name = SCHEMA.split(".") if "." in SCHEMA else (None, SCHEMA)
 
 
 def cfg_for(run_id, full_refresh=False):
-    return Config(base_path="/tmp/unused", catalog=catalog, run_id=run_id, full_refresh=full_refresh,
-                  schemas={k: schema_name for k in ["bronze", "silver", "gold", "ops"]})
+    return Config(
+        base_path="/tmp/unused",
+        catalog=catalog,
+        run_id=run_id,
+        full_refresh=full_refresh,
+        schemas={k: schema_name for k in ["bronze", "silver", "gold", "ops"]},
+    )
 
 
 T = dt.datetime
-CHANGES = "order_id string, customer_id string, order_status string, order_purchase_ts timestamp, order_approved_ts timestamp, " \
-          "order_delivered_carrier_ts timestamp, order_delivered_customer_ts timestamp, order_estimated_delivery_ts timestamp, " \
-          "change_seq int, change_ts timestamp"
-for t in ["order_changes", "order_items", "customers", "reviews", "orders", "fact_order_fulfillment", "gold_watermarks", "gold_incremental_stats"]:
+CHANGES = (
+    "order_id string, customer_id string, order_status string, order_purchase_ts timestamp, order_approved_ts timestamp, "
+    "order_delivered_carrier_ts timestamp, order_delivered_customer_ts timestamp, order_estimated_delivery_ts timestamp, "
+    "change_seq int, change_ts timestamp"
+)
+for t in [
+    "order_changes",
+    "order_items",
+    "customers",
+    "reviews",
+    "orders",
+    "fact_order_fulfillment",
+    "gold_watermarks",
+    "gold_incremental_stats",
+]:
     fresh_table(spark, SCHEMA, t)
 
 # A small silver layer: 200 orders, each created and approved on 06-01.
@@ -53,14 +68,25 @@ for i in range(200):
     o = f"o{i:03d}"
     rows += [(o, f"c{i}", "created", P, None, None, None, E, 1, P), (o, f"c{i}", "approved", P, A, None, None, E, 2, A)]
 spark.createDataFrame(rows, CHANGES).write.format("delta").saveAsTable(f"{SCHEMA}.order_changes")
-spark.createDataFrame([(f"o{i:03d}", Decimal("50")) for i in range(200)], "order_id string, price decimal(12,2)").write.format("delta").saveAsTable(f"{SCHEMA}.order_items")
-spark.createDataFrame([(f"c{i}", f"u{i}") for i in range(200)], "customer_id string, customer_unique_id string").write.format("delta").saveAsTable(f"{SCHEMA}.customers")
+spark.createDataFrame(
+    [(f"o{i:03d}", Decimal("50")) for i in range(200)], "order_id string, price decimal(12,2)"
+).write.format("delta").saveAsTable(f"{SCHEMA}.order_items")
+spark.createDataFrame(
+    [(f"c{i}", f"u{i}") for i in range(200)], "customer_id string, customer_unique_id string"
+).write.format("delta").saveAsTable(f"{SCHEMA}.customers")
 spark.createDataFrame([], "order_id string, review_score int").write.format("delta").saveAsTable(f"{SCHEMA}.reviews")
-spark.createDataFrame([(f"o{i:03d}", f"c{i}") for i in range(200)], "order_id string, customer_id string").write.format("delta").saveAsTable(f"{SCHEMA}.orders")
+spark.createDataFrame([(f"o{i:03d}", f"c{i}") for i in range(200)], "order_id string, customer_id string").write.format(
+    "delta"
+).saveAsTable(f"{SCHEMA}.orders")
 
 
 def stats():
-    return spark.table(f"{SCHEMA}.gold_incremental_stats").select("run_id", "mode", "reason", "processed_orders", "total_orders").orderBy("measured_at")
+    return (
+        spark.table(f"{SCHEMA}.gold_incremental_stats")
+        .select("run_id", "mode", "reason", "processed_orders", "total_orders")
+        .orderBy("measured_at")
+    )
+
 
 # COMMAND ----------
 
@@ -101,14 +127,19 @@ show(spark.table(f"{SCHEMA}.gold_watermarks").select("source", "version"))
 # COMMAND ----------
 
 S = T(2018, 6, 2, 9)
-spark.createDataFrame([(f"o00{i}", f"c{i}", "shipped", P, A, S, None, E, 3, S) for i in (1, 2, 3)], CHANGES) \
-    .write.format("delta").mode("append").saveAsTable(f"{SCHEMA}.order_changes")
+spark.createDataFrame(
+    [(f"o00{i}", f"c{i}", "shipped", P, A, S, None, E, 3, S) for i in (1, 2, 3)], CHANGES
+).write.format("delta").mode("append").saveAsTable(f"{SCHEMA}.order_changes")
 spark.sql(f"UPDATE {SCHEMA}.customers SET customer_unique_id = 'u150-merged' WHERE customer_id = 'c150'")
 
 gold.run_fact_order_fulfillment(spark, cfg_for("run-2"))
 show(stats())
-show(spark.table(f"{SCHEMA}.fact_order_fulfillment").where("order_id IN ('o001', 'o150', 'o199')")
-     .select("order_id", "customer_unique_id", "current_status", "hours_to_ship").orderBy("order_id"))
+show(
+    spark.table(f"{SCHEMA}.fact_order_fulfillment")
+    .where("order_id IN ('o001', 'o150', 'o199')")
+    .select("order_id", "customer_unique_id", "current_status", "hours_to_ship")
+    .orderBy("order_id")
+)
 
 # COMMAND ----------
 
@@ -127,10 +158,16 @@ show(spark.table(f"{SCHEMA}.fact_order_fulfillment").where("order_id IN ('o001',
 
 # COMMAND ----------
 
-full = gold.build_fact_order_fulfillment(spark.table(f"{SCHEMA}.order_changes"), spark.table(f"{SCHEMA}.order_items"),
-                                         spark.table(f"{SCHEMA}.customers"), spark.table(f"{SCHEMA}.reviews"))
+full = gold.build_fact_order_fulfillment(
+    spark.table(f"{SCHEMA}.order_changes"),
+    spark.table(f"{SCHEMA}.order_items"),
+    spark.table(f"{SCHEMA}.customers"),
+    spark.table(f"{SCHEMA}.reviews"),
+)
 actual = spark.table(f"{SCHEMA}.fact_order_fulfillment").select(*full.columns)
-print(f"rows only in the incremental table: {actual.exceptAll(full).count()}, rows only in the full rebuild: {full.exceptAll(actual).count()}")
+print(
+    f"rows only in the incremental table: {actual.exceptAll(full).count()}, rows only in the full rebuild: {full.exceptAll(actual).count()}"
+)
 
 # COMMAND ----------
 

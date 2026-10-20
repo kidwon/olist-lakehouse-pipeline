@@ -33,7 +33,9 @@ def _overwrite(df: DataFrame, name: str) -> None:
 NOT_YET = -1  # date key of the dim_date row for a milestone that has not happened (yet)
 
 
-def build_dim_date(spark: SparkSession, start: dt.date = dt.date(2016, 1, 1), end: dt.date = dt.date(2019, 12, 31)) -> DataFrame:
+def build_dim_date(
+    spark: SparkSession, start: dt.date = dt.date(2016, 1, 1), end: dt.date = dt.date(2019, 12, 31)
+) -> DataFrame:
     """One row per calendar day, plus the special row NOT_YET.
 
     Kimball: a fact's date foreign key should never be NULL. An accumulating snapshot has
@@ -82,7 +84,9 @@ def build_dim_customer(customers: DataFrame, orders: DataFrame) -> DataFrame:
     return latest.join(stats, "customer_unique_id")
 
 
-def build_fact_order_item(items: DataFrame, orders: DataFrame, customers: DataFrame, seller_history: DataFrame) -> DataFrame:
+def build_fact_order_item(
+    items: DataFrame, orders: DataFrame, customers: DataFrame, seller_history: DataFrame
+) -> DataFrame:
     o = orders.select(
         "order_id", "customer_id", "order_status", "order_delivered_customer_ts", "order_estimated_delivery_ts"
     )
@@ -96,9 +100,7 @@ def build_fact_order_item(items: DataFrame, orders: DataFrame, customers: DataFr
     # Point-in-time seller: the version that was valid on the order date.
     f = f.join(
         h,
-        (f.seller_id == h.seller_id)
-        & (order_date >= h.valid_from)
-        & (h.valid_to.isNull() | (order_date < h.valid_to)),
+        (f.seller_id == h.seller_id) & (order_date >= h.valid_from) & (h.valid_to.isNull() | (order_date < h.valid_to)),
         "left",
     ).drop(h.seller_id)
 
@@ -119,7 +121,9 @@ def build_fact_order_item(items: DataFrame, orders: DataFrame, customers: DataFr
         "freight_value",
         F.col("order_status").isin(NOT_SOLD).alias("is_cancelled"),
         delivered.alias("is_delivered"),
-        F.when(delivered, F.to_date("order_delivered_customer_ts") <= F.to_date("order_estimated_delivery_ts")).alias("is_on_time"),
+        F.when(delivered, F.to_date("order_delivered_customer_ts") <= F.to_date("order_estimated_delivery_ts")).alias(
+            "is_on_time"
+        ),
         "arrival_lag_days",
     )
     content = [c for c in out.columns if c not in FACT_KEYS]
@@ -130,7 +134,9 @@ def build_mart_seller_delivery(fact: DataFrame, reviews: DataFrame, dim_seller: 
     """Seller x month: GMV, on-time delivery rate and review score."""
     order_score = reviews.groupBy("order_id").agg(F.avg("review_score").alias("order_score"))
     current = dim_seller.where("is_current").select("seller_id", "seller_city", "seller_state")
-    f = fact.withColumn("year_month", F.date_format("order_purchase_ts", "yyyy-MM")).join(order_score, "order_id", "left")
+    f = fact.withColumn("year_month", F.date_format("order_purchase_ts", "yyyy-MM")).join(
+        order_score, "order_id", "left"
+    )
     sold = ~F.coalesce(F.col("is_cancelled"), F.lit(False))
     orders_per_seller = f.groupBy("seller_id", "year_month", "order_id").agg(
         F.max(F.when(sold, 1).otherwise(0)).alias("sold"),
@@ -144,16 +150,28 @@ def build_mart_seller_delivery(fact: DataFrame, reviews: DataFrame, dim_seller: 
         F.sum("on_time").alias("on_time_orders"),
         F.round(F.avg("order_score"), 2).alias("avg_review_score"),
     )
-    money = f.where(sold).groupBy("seller_id", "year_month").agg(
-        F.sum("price").alias("gmv"), F.sum("freight_value").alias("freight"), F.count("*").alias("items")
+    money = (
+        f.where(sold)
+        .groupBy("seller_id", "year_month")
+        .agg(F.sum("price").alias("gmv"), F.sum("freight_value").alias("freight"), F.count("*").alias("items"))
     )
     return (
         per_order.join(money, ["seller_id", "year_month"], "left")
         .join(current, "seller_id", "left")
         .withColumn("on_time_rate", F.round(F.col("on_time_orders") / F.col("delivered_orders"), 4))
         .select(
-            "seller_id", "seller_city", "seller_state", "year_month", "orders", "items", "gmv", "freight",
-            "delivered_orders", "on_time_orders", "on_time_rate", "avg_review_score",
+            "seller_id",
+            "seller_city",
+            "seller_state",
+            "year_month",
+            "orders",
+            "items",
+            "gmv",
+            "freight",
+            "delivered_orders",
+            "on_time_orders",
+            "on_time_rate",
+            "avg_review_score",
         )
     )
 
@@ -187,7 +205,9 @@ def build_fact_order_fulfillment(
     the order is flagged; the raw timestamps are kept as delivered.
     """
     latest = (
-        changes.withColumn("_rn", F.row_number().over(Window.partitionBy("order_id").orderBy(F.col("change_seq").desc())))
+        changes.withColumn(
+            "_rn", F.row_number().over(Window.partitionBy("order_id").orderBy(F.col("change_seq").desc()))
+        )
         .where("_rn = 1")
         .select(
             "order_id",
@@ -217,7 +237,9 @@ def build_fact_order_fulfillment(
     )
 
     f = (
-        latest.join(ended, "order_id", "left").join(lines, "order_id", "left").join(who, "customer_id", "left")
+        latest.join(ended, "order_id", "left")
+        .join(lines, "order_id", "left")
+        .join(who, "customer_id", "left")
         .join(scores, "order_id", "left")
     )
 
@@ -239,7 +261,12 @@ def build_fact_order_fulfillment(
         _date_key("shipped_ts").alias("shipped_date_key"),
         _date_key("delivered_ts").alias("delivered_date_key"),
         _date_key("estimated_ts").alias("estimated_date_key"),
-        "purchase_ts", "approved_ts", "shipped_ts", "delivered_ts", "estimated_ts", "ended_ts",
+        "purchase_ts",
+        "approved_ts",
+        "shipped_ts",
+        "delivered_ts",
+        "estimated_ts",
+        "ended_ts",
         *[F.when(expr >= 0, expr).alias(name) for name, expr in raw.items()],
         F.when(delivered, _hours("_estimated_day_end", "delivered_ts")).alias("hours_late"),
         F.when(delivered, F.to_date("delivered_ts") <= F.to_date("estimated_ts")).alias("is_on_time"),
@@ -287,10 +314,19 @@ def build_fact_daily_order_backlog(changes: DataFrame, items: DataFrame, custome
     # The last change of each order on each day (several changes can happen on one day).
     per_day = (
         changes.withColumn("change_date", F.to_date("change_ts"))
-        .withColumn("_rn", F.row_number().over(Window.partitionBy("order_id", "change_date").orderBy(F.col("change_seq").desc())))
+        .withColumn(
+            "_rn",
+            F.row_number().over(Window.partitionBy("order_id", "change_date").orderBy(F.col("change_seq").desc())),
+        )
         .where("_rn = 1")
-        .select("order_id", "customer_id", "change_date", "change_seq",
-                F.to_date("order_purchase_ts").alias("purchase_date"), F.to_date("order_estimated_delivery_ts").alias("estimated_date"))
+        .select(
+            "order_id",
+            "customer_id",
+            "change_date",
+            "change_seq",
+            F.to_date("order_purchase_ts").alias("purchase_date"),
+            F.to_date("order_estimated_delivery_ts").alias("estimated_date"),
+        )
     )
     by_date = Window.partitionBy("order_id").orderBy("change_date")
     # From each change date on, the order is in the state of the highest sequence seen so far.
@@ -304,7 +340,11 @@ def build_fact_daily_order_backlog(changes: DataFrame, items: DataFrame, custome
     # data) never makes an order count before it existed.
     start = F.greatest("change_date", "purchase_date")
     daily = segments.where(start <= F.col("segment_end")).select(
-        "order_id", "customer_id", "order_status", "purchase_date", "estimated_date",
+        "order_id",
+        "customer_id",
+        "order_status",
+        "purchase_date",
+        "estimated_date",
         F.explode(F.sequence(start, F.col("segment_end"))).alias("snapshot_date"),
     )
     value = items.groupBy("order_id").agg(F.sum("price").alias("order_value"))
@@ -312,18 +352,22 @@ def build_fact_daily_order_backlog(changes: DataFrame, items: DataFrame, custome
     daily = daily.join(value, "order_id", "left").join(state, "customer_id", "left")
 
     age = F.datediff("snapshot_date", "purchase_date")
-    out = daily.groupBy(
-        "snapshot_date",
-        "order_status",
-        # A merge key must never be NULL, or the row would never match and duplicate every run.
-        F.coalesce("customer_state", F.lit("unknown")).alias("customer_state"),
-    ).agg(
-        F.count("*").alias("open_orders"),
-        F.coalesce(F.sum("order_value"), F.lit(0)).alias("open_order_value"),
-        F.percentile_approx(age, 0.5).alias("median_age_days"),
-        F.count_if(age > STALE_AFTER_DAYS).alias("orders_open_over_30_days"),
-        F.count_if(F.col("snapshot_date") > F.col("estimated_date")).alias("overdue_orders"),
-    ).select(_date_key("snapshot_date").alias("snapshot_date_key"), "*")
+    out = (
+        daily.groupBy(
+            "snapshot_date",
+            "order_status",
+            # A merge key must never be NULL, or the row would never match and duplicate every run.
+            F.coalesce("customer_state", F.lit("unknown")).alias("customer_state"),
+        )
+        .agg(
+            F.count("*").alias("open_orders"),
+            F.coalesce(F.sum("order_value"), F.lit(0)).alias("open_order_value"),
+            F.percentile_approx(age, 0.5).alias("median_age_days"),
+            F.count_if(age > STALE_AFTER_DAYS).alias("orders_open_over_30_days"),
+            F.count_if(F.col("snapshot_date") > F.col("estimated_date")).alias("overdue_orders"),
+        )
+        .select(_date_key("snapshot_date").alias("snapshot_date_key"), "*")
+    )
     content = [c for c in out.columns if c not in BACKLOG_KEYS]
     return out.withColumn("row_hash", F.sha2(F.to_json(F.struct(*content)), 256))
 
@@ -394,15 +438,24 @@ def run_fact_order_item(spark: SparkSession, cfg: Config) -> None:
     items, orders = spark.table(t["order_items"]), spark.table(t["orders"])
 
     def build_and_merge(ids):
-        fact = build_fact_order_item(_only(items, ids), _only(orders, ids), spark.table(t["customers"]), spark.table(t["seller_history"]))
+        fact = build_fact_order_item(
+            _only(items, ids), _only(orders, ids), spark.table(t["customers"]), spark.table(t["seller_history"])
+        )
         merge_fact(spark, cfg.table("gold", "fact_order_item"), fact)
 
-    _run_incremental(spark, cfg, cfg.table("gold", "fact_order_item"), t, {
-        "order_items": lambda ch: ch.select("order_id"),
-        "orders": lambda ch: ch.select("order_id"),
-        "customers": _orders_of_customers(orders),
-        "seller_history": _orders_of_sellers(items),
-    }, build_and_merge)
+    _run_incremental(
+        spark,
+        cfg,
+        cfg.table("gold", "fact_order_item"),
+        t,
+        {
+            "order_items": lambda ch: ch.select("order_id"),
+            "orders": lambda ch: ch.select("order_id"),
+            "customers": _orders_of_customers(orders),
+            "seller_history": _orders_of_sellers(items),
+        },
+        build_and_merge,
+    )
 
 
 def run_fact_order_fulfillment(spark: SparkSession, cfg: Config) -> None:
@@ -412,21 +465,33 @@ def run_fact_order_fulfillment(spark: SparkSession, cfg: Config) -> None:
 
     def build_and_merge(ids):
         fact = build_fact_order_fulfillment(
-            _only(spark.table(t["order_changes"]), ids), _only(spark.table(t["order_items"]), ids),
-            spark.table(t["customers"]), _only(spark.table(t["reviews"]), ids),
+            _only(spark.table(t["order_changes"]), ids),
+            _only(spark.table(t["order_items"]), ids),
+            spark.table(t["customers"]),
+            _only(spark.table(t["reviews"]), ids),
         )
         merge_fact(spark, cfg.table("gold", "fact_order_fulfillment"), fact, ["order_id"])
 
-    _run_incremental(spark, cfg, cfg.table("gold", "fact_order_fulfillment"), t, {
-        "order_changes": lambda ch: ch.select("order_id"),
-        "order_items": lambda ch: ch.select("order_id"),
-        "customers": _orders_of_customers(orders),
-        "reviews": lambda ch: ch.select("order_id"),
-    }, build_and_merge)
+    _run_incremental(
+        spark,
+        cfg,
+        cfg.table("gold", "fact_order_fulfillment"),
+        t,
+        {
+            "order_changes": lambda ch: ch.select("order_id"),
+            "order_items": lambda ch: ch.select("order_id"),
+            "customers": _orders_of_customers(orders),
+            "reviews": lambda ch: ch.select("order_id"),
+        },
+        build_and_merge,
+    )
 
 
 def run(spark: SparkSession, cfg: Config) -> None:
-    silver = {n: spark.table(cfg.table("silver", n)) for n in ["order_items", "orders", "customers", "products", "reviews", "seller_history"]}
+    silver = {
+        n: spark.table(cfg.table("silver", n))
+        for n in ["order_items", "orders", "customers", "products", "reviews", "seller_history"]
+    }
 
     # Rebuilt every run (about 1,500 rows), so a change to the dimension reaches existing deployments.
     _overwrite(build_dim_date(spark), cfg.table("gold", "dim_date"))

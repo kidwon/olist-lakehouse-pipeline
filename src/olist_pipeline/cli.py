@@ -114,8 +114,12 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--replay-days", type=int, default=10)
     p.add_argument("--poison-date")
     p.add_argument("--force", action="store_true", help="prepare: reset a replay that already delivered batches")
-    p.add_argument("--full-refresh", choices=["true", "false"], default="false",
-                   help="rebuild incremental gold facts in full instead of only the changed orders")
+    p.add_argument(
+        "--full-refresh",
+        choices=["true", "false"],
+        default="false",
+        help="rebuild incremental gold facts in full instead of only the changed orders",
+    )
     args = p.parse_args(argv)
 
     cfg = build_config(args)

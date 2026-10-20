@@ -13,6 +13,7 @@ dev = [
     "pyspark==4.0.1",
     "delta-spark==4.0.0",
     "pytest>=8",
+    "ruff==0.17.1",
 ]
 
 [build-system]
@@ -25,3 +26,16 @@ packages = ["src/olist_pipeline"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]  # the formatter owns line length; long SQL strings stay as written
+
+[tool.ruff.lint.per-file-ignores]
+# Row builders take T(...) defaults: T returns an immutable datetime, so B008 is a false alarm.
+"tests/*" = ["B008"]
+"notebooks/*" = ["B008"]

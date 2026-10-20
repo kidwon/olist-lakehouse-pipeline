@@ -16,9 +16,11 @@ jobs:
       - uses: astral-sh/setup-uv@v10.2.0
       - name: Install
         run: uv sync --python 3.12
+      - name: Lint and format check (ruff)
+        run: uv run ruff check . && uv run ruff format --check .
       - name: Unit + end-to-end tests (local Spark + Delta, synthetic Olist fixture)
         run: uv run pytest -v
       - name: Walkthrough notebooks run against the current code
-        run: for nb in notebooks/walkthrough/0*.py; do echo "== $nb"; uv run python "$nb" > /dev/null || exit 1; done
+        run: for nb in notebooks/walkthrough/[0-9][0-9]_*.py; do echo "== $nb"; uv run python "$nb" > /dev/null || exit 1; done
       - name: Build wheel (the artifact the Databricks bundle deploys)
         run: uv build --wheel

@@ -9,7 +9,7 @@ rerun job cannot create duplicates (ADR-0001), and the CDC merge only moves an o
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from delta.tables import DeltaTable
 from pyspark.sql import DataFrame, SparkSession, Window
@@ -41,20 +41,29 @@ def add_lateness(items: DataFrame, cfg: Config) -> DataFrame:
     event_date = F.to_date("order_purchase_ts")
     return items.withColumn("event_date", event_date).withColumn(
         "arrival_lag_days",
-        F.when(F.col("_batch_date") > F.lit(cfg.backfill_date), F.datediff("_batch_date", event_date)).otherwise(F.lit(0)),
+        F.when(F.col("_batch_date") > F.lit(cfg.backfill_date), F.datediff("_batch_date", event_date)).otherwise(
+            F.lit(0)
+        ),
     )
 
 
-def duplicate_metrics(before: DataFrame, after: DataFrame, already_loaded: DataFrame, table_name: str, run_id: str) -> DataFrame:
+def duplicate_metrics(
+    before: DataFrame, after: DataFrame, already_loaded: DataFrame, table_name: str, run_id: str
+) -> DataFrame:
     """Info-level metrics: duplicates removed inside the batch and rows that were already loaded earlier."""
     b = before.groupBy("_batch_date").agg(F.count("*").alias("total_rows"))
     a = after.groupBy("_batch_date").agg(F.count("*").alias("after_rows"))
-    l = already_loaded.groupBy("_batch_date").agg(F.count("*").alias("loaded_rows"))
-    joined = b.join(a, "_batch_date", "left").join(l, "_batch_date", "left").fillna(0)
-    rows = F.explode(F.array(
-        F.struct(F.lit("duplicate_in_batch").alias("rule"), (F.col("total_rows") - F.col("after_rows")).alias("failed_rows")),
-        F.struct(F.lit("duplicate_already_loaded").alias("rule"), F.col("loaded_rows").alias("failed_rows")),
-    ))
+    loaded = already_loaded.groupBy("_batch_date").agg(F.count("*").alias("loaded_rows"))
+    joined = b.join(a, "_batch_date", "left").join(loaded, "_batch_date", "left").fillna(0)
+    rows = F.explode(
+        F.array(
+            F.struct(
+                F.lit("duplicate_in_batch").alias("rule"),
+                (F.col("total_rows") - F.col("after_rows")).alias("failed_rows"),
+            ),
+            F.struct(F.lit("duplicate_already_loaded").alias("rule"), F.col("loaded_rows").alias("failed_rows")),
+        )
+    )
     return joined.select(
         F.lit(run_id).alias("run_id"),
         F.lit(table_name).alias("table_name"),
@@ -62,8 +71,14 @@ def duplicate_metrics(before: DataFrame, after: DataFrame, already_loaded: DataF
         rows.alias("m"),
         "total_rows",
     ).select(
-        "run_id", "table_name", "batch_date", "m.rule", F.lit("info").alias("severity"),
-        F.col("m.failed_rows").cast("long").alias("failed_rows"), "total_rows", F.current_timestamp().alias("measured_at"),
+        "run_id",
+        "table_name",
+        "batch_date",
+        "m.rule",
+        F.lit("info").alias("severity"),
+        F.col("m.failed_rows").cast("long").alias("failed_rows"),
+        "total_rows",
+        F.current_timestamp().alias("measured_at"),
     )
 
 
@@ -93,7 +108,8 @@ def merge_cdc_forward_only(spark: SparkSession, name: str, latest: DataFrame) ->
     """Apply one row per order; a change with a lower or equal change_seq than what we hold is ignored."""
     t = ensure_table(spark, name, latest)
     (
-        t.alias("t").merge(latest.alias("s"), "t.order_id = s.order_id")
+        t.alias("t")
+        .merge(latest.alias("s"), "t.order_id = s.order_id")
         .whenMatchedUpdateAll(condition="s.change_seq > t.change_seq")
         .whenNotMatchedInsertAll()
         .execute()
@@ -123,7 +139,9 @@ def products(spark: SparkSession, cfg: Config) -> None:
 
     def fn(mb: DataFrame, _: int) -> None:
         s = mb.sparkSession
-        good = dq.record(s, cfg, dq.evaluate(mb, dq.snapshot_rules("product_id")), dq.snapshot_rules("product_id"), "products", cols)
+        good = dq.record(
+            s, cfg, dq.evaluate(mb, dq.snapshot_rules("product_id")), dq.snapshot_rules("product_id"), "products", cols
+        )
         latest = keep_first(good, ["product_id"], [F.col("_batch_date").desc()]).select(*cols, *LINEAGE)
         merge_upsert(s, cfg.table("silver", "products"), latest, ["product_id"])
 
@@ -147,9 +165,9 @@ def order_items(spark: SparkSession, cfg: Config) -> None:
         t = ensure_table(s, target_name, rows)
 
         already = rows.join(t.toDF().select(*keys), keys, "left_semi")
-        duplicate_metrics(good, deduped, already, "order_items", cfg.run_id).write.format("delta").mode("append").saveAsTable(
-            cfg.table("ops", "dq_metrics")
-        )
+        duplicate_metrics(good, deduped, already, "order_items", cfg.run_id).write.format("delta").mode(
+            "append"
+        ).saveAsTable(cfg.table("ops", "dq_metrics"))
         merge_insert_new(s, target_name, rows, keys)
 
     _stream(spark, cfg, "order_items", "order_items", fn)

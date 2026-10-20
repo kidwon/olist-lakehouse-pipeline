@@ -18,8 +18,8 @@ import datetime as dt
 from decimal import Decimal as D
 
 from pyspark.sql import functions as F
-
 from walkthrough_setup import fresh_table, setup
+
 from olist_pipeline import gold
 
 spark, SCHEMA = setup()
@@ -43,13 +43,19 @@ show = globals().get("display") or (lambda df: df.show(truncate=False))
 # COMMAND ----------
 
 customers = spark.createDataFrame(
-    [("c1", "ana", "01001", "sao paulo", "SP"), ("c2", "ana", "80010", "curitiba", "PR"), ("c3", "bruno", "20001", "rio de janeiro", "RJ")],
+    [
+        ("c1", "ana", "01001", "sao paulo", "SP"),
+        ("c2", "ana", "80010", "curitiba", "PR"),
+        ("c3", "bruno", "20001", "rio de janeiro", "RJ"),
+    ],
     "customer_id string, customer_unique_id string, customer_zip_code_prefix string, customer_city string, customer_state string",
 )
 orders = spark.createDataFrame(
-    [("o1", "c1", "delivered", dt.datetime(2018, 1, 10), dt.datetime(2018, 1, 15), dt.datetime(2018, 1, 20)),
-     ("o2", "c2", "delivered", dt.datetime(2018, 5, 2), dt.datetime(2018, 5, 12), dt.datetime(2018, 5, 10)),
-     ("o3", "c3", "canceled", dt.datetime(2018, 5, 3), None, dt.datetime(2018, 5, 20))],
+    [
+        ("o1", "c1", "delivered", dt.datetime(2018, 1, 10), dt.datetime(2018, 1, 15), dt.datetime(2018, 1, 20)),
+        ("o2", "c2", "delivered", dt.datetime(2018, 5, 2), dt.datetime(2018, 5, 12), dt.datetime(2018, 5, 10)),
+        ("o3", "c3", "canceled", dt.datetime(2018, 5, 3), None, dt.datetime(2018, 5, 20)),
+    ],
     "order_id string, customer_id string, order_status string, order_purchase_ts timestamp, "
     "order_delivered_customer_ts timestamp, order_estimated_delivery_ts timestamp",
 )
@@ -79,23 +85,51 @@ show(gold.build_dim_customer(customers, orders))
 
 # COMMAND ----------
 
-item_schema = "order_id string, order_item_id int, product_id string, seller_id string, order_purchase_ts timestamp, " \
-              "price decimal(12,2), freight_value decimal(12,2), arrival_lag_days int"
+item_schema = (
+    "order_id string, order_item_id int, product_id string, seller_id string, order_purchase_ts timestamp, "
+    "price decimal(12,2), freight_value decimal(12,2), arrival_lag_days int"
+)
 day_items = spark.createDataFrame(
-    [("o1", 1, "p1", "s1", dt.datetime(2018, 1, 10), D("120"), D("15"), 0), ("o2", 1, "p2", "s1", dt.datetime(2018, 5, 2), D("80"), D("10"), 0)], item_schema
+    [
+        ("o1", 1, "p1", "s1", dt.datetime(2018, 1, 10), D("120"), D("15"), 0),
+        ("o2", 1, "p2", "s1", dt.datetime(2018, 5, 2), D("80"), D("10"), 0),
+    ],
+    item_schema,
 )
 late_item = spark.createDataFrame([("o3", 1, "p3", "s1", dt.datetime(2018, 5, 3), D("50"), D("8"), 2)], item_schema)
-sellers = spark.createDataFrame([("s1", 111, dt.date(1900, 1, 1), None)], "seller_id string, seller_sk long, valid_from date, valid_to date")
+sellers = spark.createDataFrame(
+    [("s1", 111, dt.date(1900, 1, 1), None)], "seller_id string, seller_sk long, valid_from date, valid_to date"
+)
 
 FACT = fresh_table(spark, SCHEMA, "demo_fact_order_item")
 gold.merge_fact(spark, FACT, gold.build_fact_order_item(day_items, orders, customers, sellers))
 gold.merge_fact(spark, FACT, gold.build_fact_order_item(day_items.unionByName(late_item), orders, customers, sellers))
 
-show(spark.table(FACT).select("order_id", "order_date_key", "customer_unique_id", "order_status", "price",
-                              "is_cancelled", "is_delivered", "is_on_time", "arrival_lag_days").orderBy("order_id"))
-show(spark.sql(f"DESCRIBE HISTORY {FACT}").where("operation = 'MERGE'")
-     .select("version", F.col("operationMetrics.numTargetRowsInserted").alias("inserted"),
-             F.col("operationMetrics.numTargetRowsUpdated").alias("updated")).orderBy("version"))
+show(
+    spark.table(FACT)
+    .select(
+        "order_id",
+        "order_date_key",
+        "customer_unique_id",
+        "order_status",
+        "price",
+        "is_cancelled",
+        "is_delivered",
+        "is_on_time",
+        "arrival_lag_days",
+    )
+    .orderBy("order_id")
+)
+show(
+    spark.sql(f"DESCRIBE HISTORY {FACT}")
+    .where("operation = 'MERGE'")
+    .select(
+        "version",
+        F.col("operationMetrics.numTargetRowsInserted").alias("inserted"),
+        F.col("operationMetrics.numTargetRowsUpdated").alias("updated"),
+    )
+    .orderBy("version")
+)
 
 # COMMAND ----------
 
@@ -115,7 +149,9 @@ show(spark.sql(f"DESCRIBE HISTORY {FACT}").where("operation = 'MERGE'")
 # COMMAND ----------
 
 reviews = spark.createDataFrame([("o1", 5), ("o2", 2)], "order_id string, review_score int")
-dim_seller = spark.createDataFrame([("s1", "sao paulo", "SP", True)], "seller_id string, seller_city string, seller_state string, is_current boolean")
+dim_seller = spark.createDataFrame(
+    [("s1", "sao paulo", "SP", True)], "seller_id string, seller_city string, seller_state string, is_current boolean"
+)
 show(gold.build_mart_seller_delivery(spark.table(FACT), reviews, dim_seller).orderBy("year_month"))
 
 # COMMAND ----------

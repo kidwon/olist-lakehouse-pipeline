@@ -10,7 +10,9 @@ D1, D2, D3 = dt.date(2018, 6, 1), dt.date(2018, 6, 2), dt.date(2018, 6, 3)
 
 
 def snapshot(spark, rows):
-    return spark.createDataFrame(rows, "seller_id string, seller_zip_code_prefix string, seller_city string, seller_state string")
+    return spark.createDataFrame(
+        rows, "seller_id string, seller_zip_code_prefix string, seller_city string, seller_state string"
+    )
 
 
 def history(spark, name):
@@ -18,7 +20,9 @@ def history(spark, name):
 
 
 def test_scd2_keeps_history_and_is_idempotent(spark, table_name):
-    scd2.apply_snapshot(spark, table_name, snapshot(spark, [("s1", "1", "sao paulo", "SP"), ("s2", "2", "recife", "PE")]), D1)
+    scd2.apply_snapshot(
+        spark, table_name, snapshot(spark, [("s1", "1", "sao paulo", "SP"), ("s2", "2", "recife", "PE")]), D1
+    )
     # s1 moves; s2 is missing from the snapshot (not a delete)
     moved = snapshot(spark, [("s1", "1", "curitiba", "PR")])
     scd2.apply_snapshot(spark, table_name, moved, D2)
@@ -48,7 +52,10 @@ def test_fact_uses_the_seller_version_valid_on_the_order_date(spark, table_name)
     hist = spark.table(table_name)
 
     items = spark.createDataFrame(
-        [("before", 1, "p1", "s1", dt.datetime(2018, 6, 2, 12), 10.0, 1.0, 0), ("after", 1, "p1", "s1", dt.datetime(2018, 6, 3, 1), 20.0, 1.0, 0)],
+        [
+            ("before", 1, "p1", "s1", dt.datetime(2018, 6, 2, 12), 10.0, 1.0, 0),
+            ("after", 1, "p1", "s1", dt.datetime(2018, 6, 3, 1), 20.0, 1.0, 0),
+        ],
         "order_id string, order_item_id int, product_id string, seller_id string, order_purchase_ts timestamp, price double, freight_value double, arrival_lag_days int",
     )
     orders = spark.createDataFrame(
@@ -68,7 +75,10 @@ def test_item_before_its_order_is_kept_as_unknown(spark):
         [("o1", 1, "p1", "s1", dt.datetime(2018, 6, 2), 10.0, 1.0, 0)],
         "order_id string, order_item_id int, product_id string, seller_id string, order_purchase_ts timestamp, price double, freight_value double, arrival_lag_days int",
     )
-    empty_orders = spark.createDataFrame([], "order_id string, customer_id string, order_status string, order_delivered_customer_ts timestamp, order_estimated_delivery_ts timestamp")
+    empty_orders = spark.createDataFrame(
+        [],
+        "order_id string, customer_id string, order_status string, order_delivered_customer_ts timestamp, order_estimated_delivery_ts timestamp",
+    )
     empty_customers = spark.createDataFrame([], "customer_id string, customer_unique_id string")
     empty_hist = spark.createDataFrame([], "seller_id string, seller_sk long, valid_from date, valid_to date")
     row = gold.build_fact_order_item(items, empty_orders, empty_customers, empty_hist).first()
@@ -101,7 +111,9 @@ def test_mart_excludes_cancelled_orders_from_gmv(spark):
         "order_id string, seller_id string, order_purchase_ts timestamp, price double, freight_value double, is_cancelled boolean, is_delivered boolean, is_on_time boolean",
     )
     reviews = spark.createDataFrame([("o1", 5), ("o3", 3)], "order_id string, review_score int")
-    sellers = spark.createDataFrame([("s1", "x", "SP", True)], "seller_id string, seller_city string, seller_state string, is_current boolean")
+    sellers = spark.createDataFrame(
+        [("s1", "x", "SP", True)], "seller_id string, seller_city string, seller_state string, is_current boolean"
+    )
     r = gold.build_mart_seller_delivery(fact, reviews, sellers).first()
     assert (r.orders, float(r.gmv), r.delivered_orders, r.on_time_orders) == (2, 130.0, 2, 1)
     assert r.on_time_rate == 0.5

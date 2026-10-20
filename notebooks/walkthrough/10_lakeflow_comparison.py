@@ -57,13 +57,15 @@ if ON_DATABRICKS:
     }
     for name, sql in checks.items():
         print(f"{name:<40} {spark.sql(sql).first()[0]}")
-    show(spark.sql(f"""
+    show(
+        spark.sql(f"""
         SELECT rule, imperative, lakeflow FROM
           (SELECT r AS rule, count(*) AS imperative FROM {IMP}.olist_ops.quarantine LATERAL VIEW explode(failed_rules) t AS r
            WHERE table_name = 'order_items' GROUP BY r)
         FULL JOIN
           (SELECT r AS rule, count(*) AS lakeflow FROM {SDP}.quarantine_order_items LATERAL VIEW explode(failed_rules) t AS r GROUP BY r)
-        USING (rule) ORDER BY rule"""))
+        USING (rule) ORDER BY rule""")
+    )
 
 # COMMAND ----------
 
@@ -83,13 +85,15 @@ if ON_DATABRICKS:
 # COMMAND ----------
 
 if ON_DATABRICKS:
-    show(spark.sql(f"""
+    show(
+        spark.sql(f"""
         SELECT e.name AS expectation, sum(e.passed_records) AS passed, sum(e.failed_records) AS failed
         FROM event_log(TABLE({SDP}.silver_order_items_valid)) l
         LATERAL VIEW explode(from_json(l.details:flow_progress.data_quality.expectations,
           'array<struct<name string, dataset string, passed_records bigint, failed_records bigint>>')) t AS e
         WHERE l.event_type = 'flow_progress' AND l.details:flow_progress.data_quality IS NOT NULL
-        GROUP BY e.name ORDER BY e.name"""))
+        GROUP BY e.name ORDER BY e.name""")
+    )
 
 # COMMAND ----------
 
@@ -109,14 +113,18 @@ if ON_DATABRICKS:
 # COMMAND ----------
 
 if ON_DATABRICKS:
-    show(spark.sql(f"""
+    show(
+        spark.sql(f"""
         SELECT 'imperative' AS version, count(*) AS fact_rows, count_if(seller_sk IS NULL) AS without_seller_version FROM {IMP}.olist_gold.fact_order_item
         UNION ALL
-        SELECT 'lakeflow', count(*), count_if(seller_version IS NULL) FROM {SDP}.fact_order_item"""))
-    show(spark.sql(f"""
+        SELECT 'lakeflow', count(*), count_if(seller_version IS NULL) FROM {SDP}.fact_order_item""")
+    )
+    show(
+        spark.sql(f"""
         SELECT 'imperative' AS version, count(*) AS versions, count_if(NOT is_current) AS closed, cast(min(valid_from) AS string) AS first_start FROM {IMP}.olist_silver.seller_history
         UNION ALL
-        SELECT 'lakeflow', count(*), count_if(__END_AT IS NOT NULL), cast(min(__START_AT) AS string) FROM {SDP}.silver_seller_history"""))
+        SELECT 'lakeflow', count(*), count_if(__END_AT IS NOT NULL), cast(min(__START_AT) AS string) FROM {SDP}.silver_seller_history""")
+    )
 
 # COMMAND ----------
 

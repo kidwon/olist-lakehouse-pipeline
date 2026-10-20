@@ -9,10 +9,10 @@ import datetime as dt
 from dataclasses import replace
 
 import pytest
+from olist_fixture import write_fixture
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 
-from olist_fixture import write_fixture
 from olist_pipeline import cli, gold, replay
 from olist_pipeline.config import Config
 
@@ -30,7 +30,9 @@ def run(spark, tmp_path_factory):
     def count(t):
         return spark.table(cfg.table(*t.split("."))).count()
 
-    before = {t: count(t) for t in ["silver.order_items", "silver.orders", "silver.order_changes", "silver.seller_history"]}
+    before = {
+        t: count(t) for t in ["silver.order_items", "silver.orders", "silver.order_changes", "silver.seller_history"]
+    }
     # A second run with no new files: must change nothing in silver.
     cli.process(spark, replace(cfg, run_id="rerun"))
     after = {t: count(t) for t in before}
@@ -67,12 +69,21 @@ def test_every_injected_item_anomaly_is_reported(run):
 
 def test_every_invalid_order_change_is_reported(run):
     spark, cfg, *_ = run
-    assert reported(spark, cfg, "orders_cdc")["delivered_before_purchase"] == injected(spark, cfg, "orders_cdc")["invalid_delivery_ts"] > 0
+    assert (
+        reported(spark, cfg, "orders_cdc")["delivered_before_purchase"]
+        == injected(spark, cfg, "orders_cdc")["invalid_delivery_ts"]
+        > 0
+    )
 
 
 def test_new_producer_field_is_rescued_row_for_row(run):
     spark, cfg, *_ = run
-    new_rows = spark.table(cfg.table("ops", "replay_manifest")).where("feed = 'order_items'").agg(F.sum("new_field_rows")).first()[0]
+    new_rows = (
+        spark.table(cfg.table("ops", "replay_manifest"))
+        .where("feed = 'order_items'")
+        .agg(F.sum("new_field_rows"))
+        .first()[0]
+    )
     assert new_rows > 0
     assert reported(spark, cfg, "order_items")["rescued_data"] == new_rows
     # ...and nothing was lost: the raw value is still in bronze.
@@ -82,7 +93,12 @@ def test_new_producer_field_is_rescued_row_for_row(run):
 
 def test_silver_items_are_exactly_delivered_minus_duplicates_minus_quarantine(run):
     spark, cfg, *_ = run
-    delivered = spark.table(cfg.table("ops", "replay_manifest")).where("feed = 'order_items'").agg(F.sum("row_count")).first()[0]
+    delivered = (
+        spark.table(cfg.table("ops", "replay_manifest"))
+        .where("feed = 'order_items'")
+        .agg(F.sum("row_count"))
+        .first()[0]
+    )
     inj, rep = injected(spark, cfg, "order_items"), reported(spark, cfg, "order_items")
     items = spark.table(cfg.table("silver", "order_items"))
     expected = delivered - inj["duplicate_same_batch"] - inj["duplicate_next_batch"] - rep["__all__"]
@@ -94,10 +110,13 @@ def test_orders_reflect_the_latest_valid_change_despite_out_of_order_arrival(run
     spark, cfg, *_ = run
     assert injected(spark, cfg, "orders_cdc")["cdc_out_of_order"] > 0
     staged = spark.read.parquet(f"{cfg.staging_path}/orders_cdc").where(
-        (F.col("_delivery_date") <= cfg.last_replay_date) & (F.coalesce(F.col("_anomaly"), F.lit("")) != "invalid_delivery_ts")
+        (F.col("_delivery_date") <= cfg.last_replay_date)
+        & (F.coalesce(F.col("_anomaly"), F.lit("")) != "invalid_delivery_ts")
     )
     w = Window.partitionBy("order_id").orderBy(F.col("change_seq").desc())
-    truth = staged.withColumn("rn", F.row_number().over(w)).where("rn = 1").select("order_id", "order_status", "change_seq")
+    truth = (
+        staged.withColumn("rn", F.row_number().over(w)).where("rn = 1").select("order_id", "order_status", "change_seq")
+    )
     actual = spark.table(cfg.table("silver", "orders")).select("order_id", "order_status", "change_seq")
     assert truth.exceptAll(actual).count() == 0
     assert actual.exceptAll(truth).count() == 0
@@ -105,7 +124,9 @@ def test_orders_reflect_the_latest_valid_change_despite_out_of_order_arrival(run
 
 def test_late_items_are_accepted_and_dated_by_the_sale(run):
     spark, cfg, *_ = run
-    late = spark.table(cfg.table("silver", "order_items")).where(F.col("arrival_lag_days").between(1, cfg.late_tolerance_days))
+    late = spark.table(cfg.table("silver", "order_items")).where(
+        F.col("arrival_lag_days").between(1, cfg.late_tolerance_days)
+    )
     assert late.count() == injected(spark, cfg, "order_items")["late_within_tolerance"] > 0
     assert late.where(F.col("event_date") != F.to_date("order_purchase_ts")).count() == 0
 
@@ -133,7 +154,10 @@ def test_rerun_without_new_files_changes_nothing(run):
 
 def test_backlog_rerun_gives_identical_snapshot(run):
     *_, once, twice = run
-    strip = lambda rows: [{k: v for k, v in r.asDict().items() if k != "_updated_at"} for r in rows]
+
+    def strip(rows):
+        return [{k: v for k, v in r.asDict().items() if k != "_updated_at"} for r in rows]
+
     assert len(once) > 0 and strip(once) == strip(twice)
 
 
@@ -146,9 +170,18 @@ def test_backlog_on_the_last_day_equals_the_open_orders(run):
     assert backlog.where(" OR ".join(f"{k} IS NULL" for k in keys)).count() == 0
     last = backlog.agg(F.max("snapshot_date")).first()[0]
     on_last_day = backlog.where(F.col("snapshot_date") == last).agg(F.sum("open_orders")).first()[0]
-    open_now = spark.table(cfg.table("gold", "fact_order_fulfillment")).where(F.col("current_status").isin(gold.OPEN_STATUSES)).count()
+    open_now = (
+        spark.table(cfg.table("gold", "fact_order_fulfillment"))
+        .where(F.col("current_status").isin(gold.OPEN_STATUSES))
+        .count()
+    )
     assert on_last_day == open_now > 0
-    assert backlog.where("open_orders <= 0 OR overdue_orders > open_orders OR orders_open_over_30_days > open_orders").count() == 0
+    assert (
+        backlog.where(
+            "open_orders <= 0 OR overdue_orders > open_orders OR orders_open_over_30_days > open_orders"
+        ).count()
+        == 0
+    )
 
 
 def test_gold_fact_matches_silver_after_catch_up_run(run):
@@ -176,8 +209,12 @@ def test_change_log_holds_every_valid_change_exactly_once(run):
     log = spark.table(cfg.table("silver", "order_changes")).select("order_id", "change_seq")
     expected = (
         spark.read.parquet(f"{cfg.staging_path}/orders_cdc")
-        .where((F.col("_delivery_date") <= cfg.last_replay_date) & (F.coalesce(F.col("_anomaly"), F.lit("")) != "invalid_delivery_ts"))
-        .select("order_id", "change_seq").distinct()
+        .where(
+            (F.col("_delivery_date") <= cfg.last_replay_date)
+            & (F.coalesce(F.col("_anomaly"), F.lit("")) != "invalid_delivery_ts")
+        )
+        .select("order_id", "change_seq")
+        .distinct()
     )
     assert log.count() == log.distinct().count() == expected.count()
     assert expected.exceptAll(log).count() == 0
@@ -222,10 +259,17 @@ def test_incremental_gold_equals_a_full_rebuild(run):
     """The guarantee behind ADR-0011: after many incremental runs (including the gate-blocked day and
     the catch-up run), each fact holds exactly what a full rebuild from silver would produce."""
     spark, cfg, *_ = run
-    s = lambda n: spark.table(cfg.table("silver", n))
+
+    def s(n):
+        return spark.table(cfg.table("silver", n))
+
     expected = {
-        "fact_order_item": gold.build_fact_order_item(s("order_items"), s("orders"), s("customers"), s("seller_history")),
-        "fact_order_fulfillment": gold.build_fact_order_fulfillment(s("order_changes"), s("order_items"), s("customers"), s("reviews")),
+        "fact_order_item": gold.build_fact_order_item(
+            s("order_items"), s("orders"), s("customers"), s("seller_history")
+        ),
+        "fact_order_fulfillment": gold.build_fact_order_fulfillment(
+            s("order_changes"), s("order_items"), s("customers"), s("reviews")
+        ),
     }
     for name, full in expected.items():
         actual = spark.table(cfg.table("gold", name)).select(*full.columns)

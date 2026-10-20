@@ -111,17 +111,33 @@ def build_orders_cdc(orders: DataFrame, cfg: Config) -> DataFrame:
         _ts("order_delivered_customer_date").alias("customer"),
         _ts("order_estimated_delivery_date").alias("estimated"),
     )
-    stages = [("created", "purchase", 0), ("approved", "approved", 1), ("shipped", "carrier", 2), ("delivered", "customer", 3)]
-    steps = F.array_sort(F.filter(
-        F.array(*[
-            F.when(F.col(ts).isNotNull(), F.struct(F.col(ts).alias("ts"), F.lit(rank).alias("rank"), F.lit(status).alias("status")))
-            for status, ts, rank in stages
-        ]),
-        lambda s: s.isNotNull(),
-    ))
+    stages = [
+        ("created", "purchase", 0),
+        ("approved", "approved", 1),
+        ("shipped", "carrier", 2),
+        ("delivered", "customer", 3),
+    ]
+    steps = F.array_sort(
+        F.filter(
+            F.array(
+                *[
+                    F.when(
+                        F.col(ts).isNotNull(),
+                        F.struct(F.col(ts).alias("ts"), F.lit(rank).alias("rank"), F.lit(status).alias("status")),
+                    )
+                    for status, ts, rank in stages
+                ]
+            ),
+            lambda s: s.isNotNull(),
+        )
+    )
     last = F.element_at(steps, -1)
     # Orders that end cancelled/unavailable/invoiced/... get a final change one hour after the last stamp.
-    final_step = F.struct((last["ts"] + F.expr("INTERVAL 1 HOUR")).alias("ts"), F.lit(9).alias("rank"), F.col("final_status").alias("status"))
+    final_step = F.struct(
+        (last["ts"] + F.expr("INTERVAL 1 HOUR")).alias("ts"),
+        F.lit(9).alias("rank"),
+        F.col("final_status").alias("status"),
+    )
     steps = F.when(last["status"] == F.col("final_status"), steps).otherwise(F.concat(steps, F.array(final_step)))
 
     exploded = o.select("*", F.posexplode(steps).alias("pos", "step"))
@@ -233,9 +249,15 @@ def inject_item_anomalies(items: DataFrame, cfg: Config) -> DataFrame:
         return _in(F.col("_b"), ITEM_BUCKETS[name])
 
     late_days = (F.lit(1) + F.pmod(F.col("_b"), F.lit(2))).cast("int")  # 1 or 2 days late
-    late_target = F.when(F.date_add("_delivery_date", late_days) <= F.lit(cfg.last_replay_date), F.date_add("_delivery_date", late_days))
+    late_target = F.when(
+        F.date_add("_delivery_date", late_days) <= F.lit(cfg.last_replay_date), F.date_add("_delivery_date", late_days)
+    )
     too_late_target = _shift(cfg.late_tolerance_days + 2, cfg)
-    poisoned = (F.col("_delivery_date") == F.lit(cfg.poison_date)) & _in(F.col("_b"), POISON_BUCKET) if cfg.poison_date else F.lit(False)
+    poisoned = (
+        (F.col("_delivery_date") == F.lit(cfg.poison_date)) & _in(F.col("_b"), POISON_BUCKET)
+        if cfg.poison_date
+        else F.lit(False)
+    )
 
     anomaly = (
         F.when(tagged("late_within_tolerance") & late_target.isNotNull(), "late_within_tolerance")
@@ -250,21 +272,27 @@ def inject_item_anomalies(items: DataFrame, cfg: Config) -> DataFrame:
         "order_item_id",
         F.when(F.col("_anomaly") == "missing_product_id", F.lit(None).cast("string"))
         .when(F.col("_anomaly") == "unknown_product_id", F.concat(F.lit("unknown-"), F.col("product_id")))
-        .otherwise(F.col("product_id")).alias("product_id"),
+        .otherwise(F.col("product_id"))
+        .alias("product_id"),
         "seller_id",
         "order_purchase_ts",
         "shipping_limit_ts",
-        F.when(F.col("_anomaly").isin("invalid_price", "poison_invalid_price"), -F.col("price")).otherwise(F.col("price")).alias("price"),
+        F.when(F.col("_anomaly").isin("invalid_price", "poison_invalid_price"), -F.col("price"))
+        .otherwise(F.col("price"))
+        .alias("price"),
         "freight_value",
         F.when(F.col("_anomaly") == "late_within_tolerance", late_target)
         .when(F.col("_anomaly") == "too_late", too_late_target)
-        .otherwise(F.col("_delivery_date")).alias("_delivery_date"),
+        .otherwise(F.col("_delivery_date"))
+        .alias("_delivery_date"),
         "_anomaly",
         "_b",
     )
 
     # Duplicates: an extra copy in the same batch, or re-sent the following day.
-    same = items.where(tagged("duplicate_same_batch") & F.col("_anomaly").isNull()).withColumn("_anomaly", F.lit("duplicate_same_batch"))
+    same = items.where(tagged("duplicate_same_batch") & F.col("_anomaly").isNull()).withColumn(
+        "_anomaly", F.lit("duplicate_same_batch")
+    )
     nxt = (
         items.where(tagged("duplicate_next_batch") & F.col("_anomaly").isNull())
         .withColumn("_delivery_date", _shift(1, cfg))
@@ -290,16 +318,19 @@ def inject_order_anomalies(orders: DataFrame, cfg: Config) -> DataFrame:
 
     anomaly = (
         # An intermediate change that shows up two days after the changes that followed it.
-        F.when(_in(F.col("_b"), ORDER_BUCKETS["cdc_out_of_order"]) & delayed.isNotNull(), "cdc_out_of_order")
-        .when(_in(F.col("_b"), ORDER_BUCKETS["invalid_delivery_ts"]) & F.col("order_delivered_customer_ts").isNotNull(), "invalid_delivery_ts")
+        F.when(_in(F.col("_b"), ORDER_BUCKETS["cdc_out_of_order"]) & delayed.isNotNull(), "cdc_out_of_order").when(
+            _in(F.col("_b"), ORDER_BUCKETS["invalid_delivery_ts"]) & F.col("order_delivered_customer_ts").isNotNull(),
+            "invalid_delivery_ts",
+        )
     )
     orders = orders.withColumn("_anomaly", anomaly)
     orders = orders.withColumn(
         "_delivery_date", F.when(F.col("_anomaly") == "cdc_out_of_order", delayed).otherwise(F.col("_delivery_date"))
     ).withColumn(
         "order_delivered_customer_ts",
-        F.when(F.col("_anomaly") == "invalid_delivery_ts", F.col("order_purchase_ts") - F.expr("INTERVAL 3 DAYS"))
-        .otherwise(F.col("order_delivered_customer_ts")),
+        F.when(
+            F.col("_anomaly") == "invalid_delivery_ts", F.col("order_purchase_ts") - F.expr("INTERVAL 3 DAYS")
+        ).otherwise(F.col("order_delivered_customer_ts")),
     )
     dup = orders.where(_in(F.col("_b"), ORDER_BUCKETS["cdc_duplicate"]) & F.col("_anomaly").isNull()).withColumn(
         "_anomaly", F.lit("cdc_duplicate")
@@ -345,15 +376,24 @@ def prepare(spark: SparkSession, cfg: Config, force: bool = False) -> None:
         df = spark.read.parquet(f"{cfg.staging_path}/{name}")
         counts = df.groupBy("_delivery_date").agg(F.count("*").alias("row_count"))
         anomalies = (
-            df.where(F.col("_anomaly").isNotNull()).groupBy("_delivery_date", "_anomaly").count()
-            .groupBy("_delivery_date").agg(F.map_from_entries(F.collect_list(F.struct("_anomaly", "count"))).alias("injected"))
+            df.where(F.col("_anomaly").isNotNull())
+            .groupBy("_delivery_date", "_anomaly")
+            .count()
+            .groupBy("_delivery_date")
+            .agg(F.map_from_entries(F.collect_list(F.struct("_anomaly", "count"))).alias("injected"))
         )
         if NEW_FIELD in df.columns:
-            evolved = df.where(F.col(NEW_FIELD).isNotNull()).groupBy("_delivery_date").agg(F.count("*").alias("new_field_rows"))
+            evolved = (
+                df.where(F.col(NEW_FIELD).isNotNull())
+                .groupBy("_delivery_date")
+                .agg(F.count("*").alias("new_field_rows"))
+            )
         else:
             evolved = df.select("_delivery_date").limit(0).withColumn("new_field_rows", F.lit(0).cast("long"))
         manifest_parts.append(
-            counts.join(anomalies, "_delivery_date", "left").join(evolved, "_delivery_date", "left").select(
+            counts.join(anomalies, "_delivery_date", "left")
+            .join(evolved, "_delivery_date", "left")
+            .select(
                 F.col("_delivery_date").alias("batch_date"),
                 F.lit(name).alias("feed"),
                 "row_count",
@@ -370,7 +410,9 @@ def prepare(spark: SparkSession, cfg: Config, force: bool = False) -> None:
 
 
 def next_undelivered(spark: SparkSession, cfg: Config) -> dt.date | None:
-    row = spark.table(cfg.table("ops", "replay_manifest")).where("delivered_at IS NULL").agg(F.min("batch_date")).first()
+    row = (
+        spark.table(cfg.table("ops", "replay_manifest")).where("delivered_at IS NULL").agg(F.min("batch_date")).first()
+    )
     return row[0]
 
 

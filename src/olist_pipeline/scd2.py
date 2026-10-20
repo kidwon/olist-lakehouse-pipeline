@@ -24,7 +24,13 @@ KEY = "seller_id"
 TRACKED = ["seller_zip_code_prefix", "seller_city", "seller_state"]
 BEGINNING_OF_TIME = dt.date(1900, 1, 1)
 HISTORY_COLS = [
-    "seller_sk", KEY, *TRACKED, "attr_hash", "valid_from", "valid_to", "is_current",
+    "seller_sk",
+    KEY,
+    *TRACKED,
+    "attr_hash",
+    "valid_from",
+    "valid_to",
+    "is_current",
 ]
 
 
@@ -62,7 +68,12 @@ def last_applied_snapshot(spark: SparkSession, target_name: str) -> dt.date | No
     props = {r["key"]: r["value"] for r in spark.sql(f"SHOW TBLPROPERTIES {target_name}").collect()}
     if LAST_SNAPSHOT_PROPERTY in props:
         return dt.date.fromisoformat(props[LAST_SNAPSHOT_PROPERTY])
-    latest = spark.table(target_name).where(F.col("valid_from") > F.lit(BEGINNING_OF_TIME)).agg(F.max("valid_from")).first()[0]
+    latest = (
+        spark.table(target_name)
+        .where(F.col("valid_from") > F.lit(BEGINNING_OF_TIME))
+        .agg(F.max("valid_from"))
+        .first()[0]
+    )
     return latest
 
 
@@ -78,12 +89,18 @@ def apply_snapshot(spark: SparkSession, target_name: str, snapshot: DataFrame, s
         if last is not None and snapshot_date <= last:
             return False
     if not spark.catalog.tableExists(target_name):
-        empty = snapshot.select(KEY, *TRACKED).limit(0).select(
-            F.lit(None).cast("long").alias("seller_sk"), KEY, *TRACKED,
-            F.lit(None).cast("string").alias("attr_hash"),
-            F.lit(None).cast("date").alias("valid_from"),
-            F.lit(None).cast("date").alias("valid_to"),
-            F.lit(None).cast("boolean").alias("is_current"),
+        empty = (
+            snapshot.select(KEY, *TRACKED)
+            .limit(0)
+            .select(
+                F.lit(None).cast("long").alias("seller_sk"),
+                KEY,
+                *TRACKED,
+                F.lit(None).cast("string").alias("attr_hash"),
+                F.lit(None).cast("date").alias("valid_from"),
+                F.lit(None).cast("date").alias("valid_to"),
+                F.lit(None).cast("boolean").alias("is_current"),
+            )
         )
         empty.write.format("delta").saveAsTable(target_name)
     target = DeltaTable.forName(spark, target_name)
@@ -92,18 +109,22 @@ def apply_snapshot(spark: SparkSession, target_name: str, snapshot: DataFrame, s
         target.alias("t")
         .merge(staged.alias("s"), f"t.{KEY} = s.merge_key AND t.is_current")
         .whenMatchedUpdate(set={"valid_to": "s.valid_from", "is_current": "false"})
-        .whenNotMatchedInsert(values={
-            "seller_sk": "s.seller_sk",
-            KEY: f"s.{KEY}",
-            **{c: f"s.{c}" for c in TRACKED},
-            "attr_hash": "s.attr_hash",
-            "valid_from": "s.valid_from",
-            "valid_to": "CAST(NULL AS DATE)",
-            "is_current": "true",
-        })
+        .whenNotMatchedInsert(
+            values={
+                "seller_sk": "s.seller_sk",
+                KEY: f"s.{KEY}",
+                **{c: f"s.{c}" for c in TRACKED},
+                "attr_hash": "s.attr_hash",
+                "valid_from": "s.valid_from",
+                "valid_to": "CAST(NULL AS DATE)",
+                "is_current": "true",
+            }
+        )
         .execute()
     )
-    spark.sql(f"ALTER TABLE {target_name} SET TBLPROPERTIES ('{LAST_SNAPSHOT_PROPERTY}' = '{snapshot_date.isoformat()}')")
+    spark.sql(
+        f"ALTER TABLE {target_name} SET TBLPROPERTIES ('{LAST_SNAPSHOT_PROPERTY}' = '{snapshot_date.isoformat()}')"
+    )
     return True
 
 

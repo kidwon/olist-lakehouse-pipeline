@@ -21,8 +21,8 @@
 # COMMAND ----------
 
 from pyspark.sql import functions as F
-
 from walkthrough_setup import setup
+
 from olist_pipeline import bronze
 from olist_pipeline.contracts import FEEDS, ORDER_ITEMS
 
@@ -86,8 +86,12 @@ for f in FEEDS.values():
 
 lines = spark.createDataFrame(
     [
-        ('{"order_id":"o1","order_item_id":1,"product_id":"p1","price":129.9,"freight_value":12.5,"order_purchase_ts":"2018-06-06T10:00:00"}',),
-        ('{"order_id":"o2","order_item_id":1,"product_id":"p2","price":59.0,"freight_value":8.0,"discount_amount":2.95}',),
+        (
+            '{"order_id":"o1","order_item_id":1,"product_id":"p1","price":129.9,"freight_value":12.5,"order_purchase_ts":"2018-06-06T10:00:00"}',
+        ),
+        (
+            '{"order_id":"o2","order_item_id":1,"product_id":"p2","price":59.0,"freight_value":8.0,"discount_amount":2.95}',
+        ),
         ('{"order_id":"o3","order_item_id":1,"product_id":"p3","price":"abc","freight_value":5.0}',),
         ("this is not json",),
     ],

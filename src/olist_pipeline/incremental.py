@@ -69,7 +69,8 @@ def save_watermarks(spark: SparkSession, cfg: Config, target: str, versions: dic
     from delta.tables import DeltaTable
 
     (
-        DeltaTable.forName(spark, name).alias("t")
+        DeltaTable.forName(spark, name)
+        .alias("t")
         .merge(rows.alias("s"), "t.target = s.target AND t.source = s.source")
         .whenMatchedUpdateAll()
         .whenNotMatchedInsertAll()
@@ -128,7 +129,9 @@ def changed_order_ids(plan_: Plan, mapping: dict[str, callable]) -> DataFrame | 
     return out.where(F.col("order_id").isNotNull()).distinct()
 
 
-def record_stats(spark: SparkSession, cfg: Config, target: str, plan_: Plan, processed_orders: int, total_orders: int) -> None:
+def record_stats(
+    spark: SparkSession, cfg: Config, target: str, plan_: Plan, processed_orders: int, total_orders: int
+) -> None:
     row = spark.createDataFrame(
         [(cfg.run_id, target, plan_.mode, plan_.reason, int(processed_orders), int(total_orders))],
         "run_id string, target string, mode string, reason string, processed_orders long, total_orders long",

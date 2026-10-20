@@ -45,15 +45,21 @@ def test_an_order_is_counted_once_a_day_under_the_status_it_had_at_the_end_of_th
     o1 = out.where("snapshot_date <= DATE'2018-06-06'")
     # created and approved both happen on 06-01: at the end of the day it is approved.
     assert {(r.snapshot_date, r.order_status) for r in o1.collect()} == {
-        (D(2018, 6, 1), "approved"), (D(2018, 6, 2), "approved"),
-        (D(2018, 6, 3), "shipped"), (D(2018, 6, 4), "shipped"), (D(2018, 6, 5), "shipped"),
+        (D(2018, 6, 1), "approved"),
+        (D(2018, 6, 2), "approved"),
+        (D(2018, 6, 3), "shipped"),
+        (D(2018, 6, 4), "shipped"),
+        (D(2018, 6, 5), "shipped"),
     }
     assert o1.agg(F.sum("open_orders")).first()[0] == 5  # one order, five open days, never twice on one day
 
 
 def test_a_delivered_or_cancelled_order_leaves_the_backlog(spark):
     rows = LIFECYCLE[:2] + [change("o1", "canceled", 3, T(2018, 6, 2, 12)), LIFECYCLE[4]]
-    days = {r.snapshot_date for r in build(spark, rows).where("customer_state = 'SP' AND order_status <> 'created'").collect()}
+    days = {
+        r.snapshot_date
+        for r in build(spark, rows).where("customer_state = 'SP' AND order_status <> 'created'").collect()
+    }
     assert days == {D(2018, 6, 1)}  # approved on 06-01, cancelled on 06-02
 
 
@@ -107,5 +113,11 @@ def test_a_late_change_restates_past_days_and_removes_combinations(spark, table_
     assert {(r.snapshot_date, r.order_status) for r in after.collect()} >= {(D(2018, 6, 4), "shipped")}
     # The "approved" rows of 06-03..06-05 no longer exist and were deleted, not left behind.
     assert after.where("order_status = 'approved' AND snapshot_date > DATE'2018-06-02'").count() == 0
-    m = spark.sql(f"DESCRIBE HISTORY {table_name}").where("operation = 'MERGE'").orderBy(F.desc("version")).first().operationMetrics
+    m = (
+        spark.sql(f"DESCRIBE HISTORY {table_name}")
+        .where("operation = 'MERGE'")
+        .orderBy(F.desc("version"))
+        .first()
+        .operationMetrics
+    )
     assert int(m["numTargetRowsDeleted"]) == 3 and int(m["numTargetRowsInserted"]) == 3

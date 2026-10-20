@@ -21,8 +21,18 @@ def orders_df(spark, rows):
 def test_redelivered_item_is_not_counted_twice(spark, table_name):
     """The same line re-sent in a later batch must not double revenue."""
     schema = "order_id string, order_item_id int, price double"
-    silver.merge_insert_new(spark, table_name, spark.createDataFrame([("o1", 1, 10.0), ("o1", 2, 5.0)], schema), ["order_id", "order_item_id"])
-    silver.merge_insert_new(spark, table_name, spark.createDataFrame([("o1", 1, 10.0), ("o2", 1, 7.0)], schema), ["order_id", "order_item_id"])
+    silver.merge_insert_new(
+        spark,
+        table_name,
+        spark.createDataFrame([("o1", 1, 10.0), ("o1", 2, 5.0)], schema),
+        ["order_id", "order_item_id"],
+    )
+    silver.merge_insert_new(
+        spark,
+        table_name,
+        spark.createDataFrame([("o1", 1, 10.0), ("o2", 1, 7.0)], schema),
+        ["order_id", "order_item_id"],
+    )
 
     t = spark.table(table_name)
     assert t.count() == 3
@@ -30,7 +40,9 @@ def test_redelivered_item_is_not_counted_twice(spark, table_name):
 
 
 def test_keep_first_removes_in_batch_duplicates(spark):
-    df = spark.createDataFrame([("o1", 1, "a"), ("o1", 1, "b"), ("o1", 2, "c")], "order_id string, order_item_id int, f string")
+    df = spark.createDataFrame(
+        [("o1", 1, "a"), ("o1", 1, "b"), ("o1", 2, "c")], "order_id string, order_item_id int, f string"
+    )
     out = silver.keep_first(df, ["order_id", "order_item_id"], [F.col("f")])
     assert sorted((r.order_item_id, r.f) for r in out.collect()) == [(1, "a"), (2, "c")]
 
@@ -59,8 +71,10 @@ def test_newer_change_moves_order_forward(spark, table_name):
 
 # --- data quality -------------------------------------------------------------
 def _items(spark, rows):
-    schema = "order_id string, order_item_id int, product_id string, price double, freight_value double, " \
-             "order_purchase_ts timestamp, _batch_date date, _malformed boolean, _product_known boolean"
+    schema = (
+        "order_id string, order_item_id int, product_id string, price double, freight_value double, "
+        "order_purchase_ts timestamp, _batch_date date, _malformed boolean, _product_known boolean"
+    )
     return spark.createDataFrame(rows, schema)
 
 
@@ -99,7 +113,9 @@ def test_metrics_count_bad_rows_once_and_each_rule_separately(spark):
         ("b", 1, "p1", 10.0, 1.0, T0.replace(day=9), d, False, True),
     ]
     ev = dq.evaluate(_items(spark, rows), dq.item_rules(cfg))
-    m = {r.rule: (r.failed_rows, r.total_rows) for r in dq.metrics(ev, dq.item_rules(cfg), "order_items", "r1").collect()}
+    m = {
+        r.rule: (r.failed_rows, r.total_rows) for r in dq.metrics(ev, dq.item_rules(cfg), "order_items", "r1").collect()
+    }
     assert m[dq.ALL_RULES] == (1, 2)  # one bad row, even though it broke two rules
     assert m["price_not_positive"] == (1, 2)
     assert m["missing_product_id"] == (1, 2)
@@ -126,8 +142,9 @@ def test_status_change_before_the_purchase_is_quarantined(spark):
         ("bad", "shipped", 2, dt.datetime(2018, 1, 26), dt.datetime(2018, 7, 16), None),
     ]
     df = spark.createDataFrame(
-        rows, "order_id string, order_status string, change_seq int, change_ts timestamp, order_purchase_ts timestamp, "
-              "order_delivered_customer_ts timestamp",
+        rows,
+        "order_id string, order_status string, change_seq int, change_ts timestamp, order_purchase_ts timestamp, "
+        "order_delivered_customer_ts timestamp",
     ).withColumn("_malformed", F.lit(False))
     out = {r.order_id: r._failed_rules for r in dq.evaluate(df, dq.order_rules()).collect()}
     assert out == {"ok": [], "bad": ["change_before_purchase"]}

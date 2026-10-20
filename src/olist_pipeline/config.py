@@ -35,12 +35,14 @@ class Config:
     late_tolerance_days: int = 3
     dq_max_bad_ratio: float = 0.05
 
-    schemas: dict = field(default_factory=lambda: {
-        "bronze": "olist_bronze",
-        "silver": "olist_silver",
-        "gold": "olist_gold",
-        "ops": "olist_ops",
-    })
+    schemas: dict = field(
+        default_factory=lambda: {
+            "bronze": "olist_bronze",
+            "silver": "olist_silver",
+            "gold": "olist_gold",
+            "ops": "olist_ops",
+        }
+    )
 
     # ---------------------------------------------------------------------
     def table(self, layer: str, name: str) -> str:

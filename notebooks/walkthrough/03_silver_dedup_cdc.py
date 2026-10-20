@@ -23,8 +23,8 @@
 from datetime import datetime
 
 from pyspark.sql import functions as F
-
 from walkthrough_setup import fresh_table, setup
+
 from olist_pipeline import silver
 
 spark, SCHEMA = setup()

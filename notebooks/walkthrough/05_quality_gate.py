@@ -17,8 +17,8 @@
 import datetime as dt
 
 from pyspark.sql import functions as F
-
 from walkthrough_setup import fresh_table, setup
+
 from olist_pipeline import gate
 from olist_pipeline import quality as dq
 from olist_pipeline.config import Config
@@ -33,18 +33,28 @@ for t in ["dq_metrics", "quarantine", "dq_gate_log"]:
 
 def cfg_for(run_id):
     # Point every layer at the scratch schema so nothing touches the real pipeline tables.
-    return Config(base_path="/tmp/unused", catalog=catalog, run_id=run_id, backfill_date=dt.date(2018, 5, 31),
-                  schemas={k: schema_name for k in ["bronze", "silver", "gold", "ops"]})
+    return Config(
+        base_path="/tmp/unused",
+        catalog=catalog,
+        run_id=run_id,
+        backfill_date=dt.date(2018, 5, 31),
+        schemas={k: schema_name for k in ["bronze", "silver", "gold", "ops"]},
+    )
 
 
-ITEM_COLS = "order_id string, order_item_id int, product_id string, price double, freight_value double, " \
-            "order_purchase_ts timestamp, _batch_date date, _malformed boolean, _product_known boolean, _raw string, _source_file string"
+ITEM_COLS = (
+    "order_id string, order_item_id int, product_id string, price double, freight_value double, "
+    "order_purchase_ts timestamp, _batch_date date, _malformed boolean, _product_known boolean, _raw string, _source_file string"
+)
 
 
 def items_batch(batch_date, bad_rows):
     """20 clean order items sold on `batch_date`, then `bad_rows` of them broken."""
     sold = dt.datetime.combine(batch_date, dt.time(12))
-    rows = [(f"o{i}", 1, "p1", 100.0, 10.0, sold, batch_date, False, True, "{...}", f"batch_date={batch_date}/part-0.json") for i in range(20)]
+    rows = [
+        (f"o{i}", 1, "p1", 100.0, 10.0, sold, batch_date, False, True, "{...}", f"batch_date={batch_date}/part-0.json")
+        for i in range(20)
+    ]
     for i, kind in enumerate(bad_rows):
         r = list(rows[i])
         if kind == "negative_price":
@@ -57,6 +67,7 @@ def items_batch(batch_date, bad_rows):
             r[5] = sold - dt.timedelta(days=5)
         rows[i] = tuple(r)
     return spark.createDataFrame(rows, ITEM_COLS)
+
 
 # COMMAND ----------
 
@@ -78,7 +89,19 @@ def items_batch(batch_date, bad_rows):
 rules = dq.item_rules(cfg_for("demo"))
 print("rules:", [r.name for r in rules])
 batch = items_batch(dt.date(2018, 6, 6), ["negative_price", "unknown_product", "missing_product", "five_days_late"])
-show(dq.evaluate(batch, rules).select("order_id", "product_id", "price", F.to_date("order_purchase_ts").alias("sold_on"), "_batch_date", "_failed_rules").orderBy(F.size("_failed_rules").desc(), "order_id").limit(6))
+show(
+    dq.evaluate(batch, rules)
+    .select(
+        "order_id",
+        "product_id",
+        "price",
+        F.to_date("order_purchase_ts").alias("sold_on"),
+        "_batch_date",
+        "_failed_rules",
+    )
+    .orderBy(F.size("_failed_rules").desc(), "order_id")
+    .limit(6)
+)
 
 # COMMAND ----------
 
@@ -102,7 +125,11 @@ contract_cols = ["order_id", "order_item_id", "product_id", "price", "freight_va
 good = dq.record(spark, cfg_ok, dq.evaluate(batch, rules), rules, "order_items", contract_cols)
 print(f"rows in: {batch.count()}, rows passed on to the MERGE: {good.count()}")
 show(spark.table(f"{SCHEMA}.quarantine").select("table_name", "batch_date", "failed_rules", "record"))
-show(spark.table(f"{SCHEMA}.dq_metrics").where("failed_rows > 0").select("run_id", "rule", "severity", "failed_rows", "total_rows"))
+show(
+    spark.table(f"{SCHEMA}.dq_metrics")
+    .where("failed_rows > 0")
+    .select("run_id", "rule", "severity", "failed_rows", "total_rows")
+)
 
 # COMMAND ----------
 
@@ -138,7 +165,11 @@ for run_cfg in [cfg_ok, cfg_clean]:
     except gate.DataQualityGateError as e:
         print(f"{run_cfg.run_id}: GATE FAILED -> {e}")
 
-show(spark.table(f"{SCHEMA}.dq_gate_log").select("run_id", "table_name", "bad_rows", "total_rows", "bad_ratio", "threshold", "passed"))
+show(
+    spark.table(f"{SCHEMA}.dq_gate_log").select(
+        "run_id", "table_name", "bad_rows", "total_rows", "bad_ratio", "threshold", "passed"
+    )
+)
 
 # COMMAND ----------
 

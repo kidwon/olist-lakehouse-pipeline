@@ -114,14 +114,16 @@ PCT = {"type": "number-percent", "decimalPlaces": {"type": "max", "places": 1}}
 
 
 def query(dataset: str, *fields: str) -> list:
-    return [{
-        "name": "main_query",
-        "query": {
-            "datasetName": dataset,
-            "fields": [{"name": f, "expression": f"`{f}`"} for f in fields],
-            "disaggregated": True,
-        },
-    }]
+    return [
+        {
+            "name": "main_query",
+            "query": {
+                "datasetName": dataset,
+                "fields": [{"name": f, "expression": f"`{f}`"} for f in fields],
+                "disaggregated": True,
+            },
+        }
+    ]
 
 
 def text(name: str, *lines: str) -> dict:
@@ -136,8 +138,12 @@ def counter(name: str, dataset: str, field: str, title: str, fmt: dict | None = 
     return {
         "name": name,
         "queries": query(dataset, field),
-        "spec": {"version": 2, "widgetType": "counter", "encodings": {"value": value},
-                 "frame": {"showTitle": True, "title": title}},
+        "spec": {
+            "version": 2,
+            "widgetType": "counter",
+            "encodings": {"value": value},
+            "frame": {"showTitle": True, "title": title},
+        },
     }
 
 
@@ -159,8 +165,12 @@ def chart(name: str, kind: str, dataset: str, title: str, x: tuple, y: tuple, co
     return {
         "name": name,
         "queries": query(dataset, *fields),
-        "spec": {"version": 3, "widgetType": kind, "encodings": encodings,
-                 "frame": {"showTitle": True, "title": title}},
+        "spec": {
+            "version": 3,
+            "widgetType": kind,
+            "encodings": encodings,
+            "frame": {"showTitle": True, "title": title},
+        },
     }
 
 
@@ -182,66 +192,262 @@ def at(widget: dict, x: int, y: int, w: int, h: int) -> dict:
 
 
 quality_page = [
-    at(text("dq_title",
+    at(
+        text(
+            "dq_title",
             "## データ品質 / Data quality",
             "Every rule hit is counted per batch in `olist_ops.dq_metrics`. A run whose bad-row ratio "
-            "exceeds 5% is stopped by `dq_gate` before gold is published."), 0, 0, 6, 2),
+            "exceeds 5% is stopped by `dq_gate` before gold is published.",
+        ),
+        0,
+        0,
+        6,
+        2,
+    ),
     at(counter("kpi_runs", "kpi_ops", "runs", "パイプライン実行回数 / Runs"), 0, 2, 2, 3),
     at(counter("kpi_blocked", "kpi_ops", "blocked_runs", "ゲートで停止 / Blocked runs"), 2, 2, 2, 3),
     at(counter("kpi_quarantined", "kpi_ops", "quarantined", "隔離レコード / Quarantined rows"), 4, 2, 2, 3),
-    at(chart("dq_ratio_line", "line", "dq_ratio", "不正率の推移 / Bad-row ratio per batch (threshold 5%)",
-             ("batch_date", "バッチ日", "temporal"), ("bad_ratio", "不正率", "quantitative", PCT),
-             ("series", "テーブル", "categorical")), 0, 5, 6, 6),
-    at(chart("dq_errors_bar", "bar", "dq_errors", "隔離したルール違反 / Quarantined, by rule (error)",
-             ("batch_date", "バッチ日", "temporal"), ("rows", "件数", "quantitative"),
-             ("rule", "ルール", "categorical")), 0, 11, 3, 6),
-    at(chart("dq_handled_bar", "bar", "dq_handled", "重複排除・未知フィールド退避 / Duplicates removed, fields rescued (info/warn)",
-             ("batch_date", "バッチ日", "temporal"), ("rows", "件数", "quantitative"),
-             ("rule", "ルール", "categorical")), 3, 11, 3, 6),
-    at(table("dq_gate_table", "dq_gate", "ゲート判定 / Gate decisions",
-             [("evaluated_at", "評価日時"), ("run_id", "run_id"), ("table_name", "テーブル"), ("bad_rows", "不正行"),
-              ("total_rows", "全行"), ("bad_pct", "不正率 %"), ("passed", "合格")]), 0, 17, 6, 7),
-    at(table("dq_quarantine_table", "dq_quarantine", "隔離レコード / Quarantined records",
-             [("batch_date", "バッチ日"), ("table_name", "テーブル"), ("rules", "違反ルール"), ("record", "レコード")]),
-       0, 24, 6, 7),
-    at(chart("ops_incremental_line", "line", "ops_incremental",
-             "増分処理：各実行で再計算した注文の割合 / Share of orders rebuilt per run (Change Data Feed)",
-             ("measured_at", "実行日時", "temporal"), ("processed_share", "再計算した割合", "quantitative", PCT),
-             ("fact", "ファクト", "categorical")), 0, 31, 6, 6),
+    at(
+        chart(
+            "dq_ratio_line",
+            "line",
+            "dq_ratio",
+            "不正率の推移 / Bad-row ratio per batch (threshold 5%)",
+            ("batch_date", "バッチ日", "temporal"),
+            ("bad_ratio", "不正率", "quantitative", PCT),
+            ("series", "テーブル", "categorical"),
+        ),
+        0,
+        5,
+        6,
+        6,
+    ),
+    at(
+        chart(
+            "dq_errors_bar",
+            "bar",
+            "dq_errors",
+            "隔離したルール違反 / Quarantined, by rule (error)",
+            ("batch_date", "バッチ日", "temporal"),
+            ("rows", "件数", "quantitative"),
+            ("rule", "ルール", "categorical"),
+        ),
+        0,
+        11,
+        3,
+        6,
+    ),
+    at(
+        chart(
+            "dq_handled_bar",
+            "bar",
+            "dq_handled",
+            "重複排除・未知フィールド退避 / Duplicates removed, fields rescued (info/warn)",
+            ("batch_date", "バッチ日", "temporal"),
+            ("rows", "件数", "quantitative"),
+            ("rule", "ルール", "categorical"),
+        ),
+        3,
+        11,
+        3,
+        6,
+    ),
+    at(
+        table(
+            "dq_gate_table",
+            "dq_gate",
+            "ゲート判定 / Gate decisions",
+            [
+                ("evaluated_at", "評価日時"),
+                ("run_id", "run_id"),
+                ("table_name", "テーブル"),
+                ("bad_rows", "不正行"),
+                ("total_rows", "全行"),
+                ("bad_pct", "不正率 %"),
+                ("passed", "合格"),
+            ],
+        ),
+        0,
+        17,
+        6,
+        7,
+    ),
+    at(
+        table(
+            "dq_quarantine_table",
+            "dq_quarantine",
+            "隔離レコード / Quarantined records",
+            [("batch_date", "バッチ日"), ("table_name", "テーブル"), ("rules", "違反ルール"), ("record", "レコード")],
+        ),
+        0,
+        24,
+        6,
+        7,
+    ),
+    at(
+        chart(
+            "ops_incremental_line",
+            "line",
+            "ops_incremental",
+            "増分処理：各実行で再計算した注文の割合 / Share of orders rebuilt per run (Change Data Feed)",
+            ("measured_at", "実行日時", "temporal"),
+            ("processed_share", "再計算した割合", "quantitative", PCT),
+            ("fact", "ファクト", "categorical"),
+        ),
+        0,
+        31,
+        6,
+        6,
+    ),
 ]
 
 business_page = [
-    at(text("biz_title",
+    at(
+        text(
+            "biz_title",
             "## 業務指標 / Business",
             "Built from `olist_gold`. Seller location is taken at order time from the SCD2 `dim_seller`, "
             "so a seller who moved keeps past sales in the old state. "
             "2018-06 holds only the 10 replayed days, so its month is partial, and its stage times are "
-            "biased low: only orders that finished quickly have a completed stage yet (right-censoring)."), 0, 0, 6, 2),
-    at(counter("kpi_gmv", "kpi_biz", "gmv_millions", "GMV（百万 BRL / BRL millions）",
-               {"type": "number-plain", "abbreviation": "none", "decimalPlaces": {"type": "exact", "places": 2}}), 0, 2, 2, 3),
-    at(counter("kpi_orders", "kpi_biz", "orders", "注文数 / Orders",
-               {"type": "number-plain", "abbreviation": "none", "decimalPlaces": {"type": "exact", "places": 0}}), 2, 2, 2, 3),
+            "biased low: only orders that finished quickly have a completed stage yet (right-censoring).",
+        ),
+        0,
+        0,
+        6,
+        2,
+    ),
+    at(
+        counter(
+            "kpi_gmv",
+            "kpi_biz",
+            "gmv_millions",
+            "GMV（百万 BRL / BRL millions）",
+            {"type": "number-plain", "abbreviation": "none", "decimalPlaces": {"type": "exact", "places": 2}},
+        ),
+        0,
+        2,
+        2,
+        3,
+    ),
+    at(
+        counter(
+            "kpi_orders",
+            "kpi_biz",
+            "orders",
+            "注文数 / Orders",
+            {"type": "number-plain", "abbreviation": "none", "decimalPlaces": {"type": "exact", "places": 0}},
+        ),
+        2,
+        2,
+        2,
+        3,
+    ),
     at(counter("kpi_on_time", "kpi_biz", "on_time_rate", "定時配達率 / On-time rate", PCT), 4, 2, 2, 3),
-    at(chart("biz_gmv_month", "bar", "biz_monthly", "月次 GMV / Monthly GMV (BRL)",
-             ("month", "月", "temporal"), ("gmv", "GMV", "quantitative")), 0, 5, 3, 6),
-    at(chart("biz_on_time_month", "line", "biz_monthly", "月次 定時配達率 / Monthly on-time rate",
-             ("month", "月", "temporal"), ("on_time_rate", "定時配達率", "quantitative", PCT)), 3, 5, 3, 6),
-    at(chart("biz_state_bar", "bar", "biz_state", "注文時点のセラー州別 GMV / GMV by seller state at order time",
-             ("seller_state", "州", "categorical", None, "y-reversed"), ("gmv", "GMV", "quantitative")), 0, 11, 3, 7),
-    at(chart("biz_fulfillment_line", "line", "biz_fulfillment",
-             "履約の各段階の平均時間（時間）/ Average hours per fulfillment stage (fact_order_fulfillment)",
-             ("month", "月", "temporal"), ("avg_hours", "平均時間", "quantitative"),
-             ("stage", "段階", "categorical")), 0, 18, 6, 6),
-    at(chart("biz_backlog_line", "line", "biz_backlog",
-             "日次の未完了注文（ステータス別）/ Daily open orders by status (fact_daily_order_backlog)",
-             ("snapshot_date", "日付", "temporal"), ("open_orders", "未完了の注文", "quantitative"),
-             ("order_status", "ステータス", "categorical")), 0, 24, 6, 6),
-    at(chart("biz_lateness_score_bar", "bar", "biz_lateness_score",
-             "配達の遅れとレビュー評価 / Review score by delivery lateness (fact_order_fulfillment)",
-             ("lateness", "配達予定日との差", "categorical"), ("avg_review_score", "平均評価（★）", "quantitative")), 0, 30, 6, 6),
-    at(table("biz_top_table", "biz_top", "GMV 上位セラー / Top sellers",
-             [("seller_id", "セラー"), ("seller_state", "州"), ("gmv", "GMV"), ("orders", "注文"),
-              ("on_time_rate", "定時率"), ("avg_review_score", "評価")]), 3, 11, 3, 7),
+    at(
+        chart(
+            "biz_gmv_month",
+            "bar",
+            "biz_monthly",
+            "月次 GMV / Monthly GMV (BRL)",
+            ("month", "月", "temporal"),
+            ("gmv", "GMV", "quantitative"),
+        ),
+        0,
+        5,
+        3,
+        6,
+    ),
+    at(
+        chart(
+            "biz_on_time_month",
+            "line",
+            "biz_monthly",
+            "月次 定時配達率 / Monthly on-time rate",
+            ("month", "月", "temporal"),
+            ("on_time_rate", "定時配達率", "quantitative", PCT),
+        ),
+        3,
+        5,
+        3,
+        6,
+    ),
+    at(
+        chart(
+            "biz_state_bar",
+            "bar",
+            "biz_state",
+            "注文時点のセラー州別 GMV / GMV by seller state at order time",
+            ("seller_state", "州", "categorical", None, "y-reversed"),
+            ("gmv", "GMV", "quantitative"),
+        ),
+        0,
+        11,
+        3,
+        7,
+    ),
+    at(
+        chart(
+            "biz_fulfillment_line",
+            "line",
+            "biz_fulfillment",
+            "履約の各段階の平均時間（時間）/ Average hours per fulfillment stage (fact_order_fulfillment)",
+            ("month", "月", "temporal"),
+            ("avg_hours", "平均時間", "quantitative"),
+            ("stage", "段階", "categorical"),
+        ),
+        0,
+        18,
+        6,
+        6,
+    ),
+    at(
+        chart(
+            "biz_backlog_line",
+            "line",
+            "biz_backlog",
+            "日次の未完了注文（ステータス別）/ Daily open orders by status (fact_daily_order_backlog)",
+            ("snapshot_date", "日付", "temporal"),
+            ("open_orders", "未完了の注文", "quantitative"),
+            ("order_status", "ステータス", "categorical"),
+        ),
+        0,
+        24,
+        6,
+        6,
+    ),
+    at(
+        chart(
+            "biz_lateness_score_bar",
+            "bar",
+            "biz_lateness_score",
+            "配達の遅れとレビュー評価 / Review score by delivery lateness (fact_order_fulfillment)",
+            ("lateness", "配達予定日との差", "categorical"),
+            ("avg_review_score", "平均評価（★）", "quantitative"),
+        ),
+        0,
+        30,
+        6,
+        6,
+    ),
+    at(
+        table(
+            "biz_top_table",
+            "biz_top",
+            "GMV 上位セラー / Top sellers",
+            [
+                ("seller_id", "セラー"),
+                ("seller_state", "州"),
+                ("gmv", "GMV"),
+                ("orders", "注文"),
+                ("on_time_rate", "定時率"),
+                ("avg_review_score", "評価"),
+            ],
+        ),
+        3,
+        11,
+        3,
+        7,
+    ),
 ]
 
 dashboard = {
@@ -250,8 +456,18 @@ dashboard = {
         for name, sql in DATASETS.items()
     ],
     "pages": [
-        {"name": "quality", "displayName": "データ品質 / Data quality", "pageType": "PAGE_TYPE_CANVAS", "layout": quality_page},
-        {"name": "business", "displayName": "業務指標 / Business", "pageType": "PAGE_TYPE_CANVAS", "layout": business_page},
+        {
+            "name": "quality",
+            "displayName": "データ品質 / Data quality",
+            "pageType": "PAGE_TYPE_CANVAS",
+            "layout": quality_page,
+        },
+        {
+            "name": "business",
+            "displayName": "業務指標 / Business",
+            "pageType": "PAGE_TYPE_CANVAS",
+            "layout": business_page,
+        },
     ],
 }
 

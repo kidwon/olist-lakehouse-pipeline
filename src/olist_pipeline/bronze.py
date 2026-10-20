@@ -65,8 +65,10 @@ def _read_stream(spark: SparkSession, cfg: Config, feed: Feed) -> DataFrame:
     df = with_file_metadata(df)
     if is_json:
         return parse_json_lines(df, feed)
-    return df.withColumn("_rescued_data", F.lit(None).cast("string")).withColumn("_malformed", F.lit(False)).withColumn(
-        "_raw", F.lit(None).cast("string")
+    return (
+        df.withColumn("_rescued_data", F.lit(None).cast("string"))
+        .withColumn("_malformed", F.lit(False))
+        .withColumn("_raw", F.lit(None).cast("string"))
     )
 
 
@@ -85,4 +87,3 @@ def ingest(spark: SparkSession, cfg: Config, feed_name: str) -> None:
 def run(spark: SparkSession, cfg: Config) -> None:
     for name in FEEDS:
         ingest(spark, cfg, name)
-

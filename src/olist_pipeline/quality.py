@@ -103,14 +103,18 @@ def metrics(evaluated: DataFrame, rules: list[Rule], table_name: str, run_id: st
         (F.count_if(F.col("_rescued_data").isNotNull()) if has_rescued else F.lit(0).cast("long")).alias(RESCUED),
     )
     stack_cols = [ALL_RULES, *names, RESCUED]
-    stack = F.explode(F.array(*[
-        F.struct(
-            F.lit(n).alias("rule"),
-            F.lit("warn" if n == RESCUED else "error").alias("severity"),
-            F.col(f"`{n}`").cast("long").alias("failed_rows"),
+    stack = F.explode(
+        F.array(
+            *[
+                F.struct(
+                    F.lit(n).alias("rule"),
+                    F.lit("warn" if n == RESCUED else "error").alias("severity"),
+                    F.col(f"`{n}`").cast("long").alias("failed_rows"),
+                )
+                for n in stack_cols
+            ]
         )
-        for n in stack_cols
-    ]))
+    )
     return agg.select(
         F.lit(run_id).alias("run_id"),
         F.lit(table_name).alias("table_name"),
@@ -133,11 +137,15 @@ def quarantine_rows(bad: DataFrame, contract_cols: list[str], table_name: str, r
     )
 
 
-def record(spark: SparkSession, cfg: Config, evaluated: DataFrame, rules: list[Rule], table_name: str, contract_cols: list[str]) -> DataFrame:
+def record(
+    spark: SparkSession, cfg: Config, evaluated: DataFrame, rules: list[Rule], table_name: str, contract_cols: list[str]
+) -> DataFrame:
     """Write metrics and quarantine for one micro-batch; return the rows that passed."""
     # No persist(): serverless compute does not support caching; a micro-batch is cheap to recompute.
     good, bad = split(evaluated)
-    metrics(evaluated, rules, table_name, cfg.run_id).write.format("delta").mode("append").saveAsTable(cfg.table("ops", "dq_metrics"))
+    metrics(evaluated, rules, table_name, cfg.run_id).write.format("delta").mode("append").saveAsTable(
+        cfg.table("ops", "dq_metrics")
+    )
     quarantine_rows(bad, contract_cols, table_name, cfg.run_id).write.format("delta").mode("append").saveAsTable(
         cfg.table("ops", "quarantine")
     )

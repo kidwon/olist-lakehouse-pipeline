@@ -3,7 +3,6 @@
 import uuid
 
 import pytest
-from pyspark.sql import functions as F
 
 from olist_pipeline import gold
 from olist_pipeline import incremental as inc
@@ -15,7 +14,9 @@ def cfg(spark):
     """A config whose ops tables live in a fresh schema, so watermarks never leak between tests."""
     schema = f"inc_{uuid.uuid4().hex[:8]}"
     spark.sql(f"CREATE DATABASE {schema}")
-    return Config(base_path="/tmp/unused", run_id="r1", schemas={k: schema for k in ["bronze", "silver", "gold", "ops"]})
+    return Config(
+        base_path="/tmp/unused", run_id="r1", schemas={k: schema for k in ["bronze", "silver", "gold", "ops"]}
+    )
 
 
 def source(spark, cfg, rows):
@@ -80,7 +81,9 @@ def test_watermark_moves_only_after_a_successful_merge(spark, cfg):
     before = inc.current_version(spark, src)
     inc.save_watermarks(spark, cfg, target, {src: before})
     spark.sql(f"INSERT INTO {src} VALUES ('o2', 1)")
-    spark.createDataFrame([("o1",), ("o2",)], "order_id string").write.format("delta").saveAsTable(cfg.table("silver", "orders"))
+    spark.createDataFrame([("o1",), ("o2",)], "order_id string").write.format("delta").saveAsTable(
+        cfg.table("silver", "orders")
+    )
 
     def boom(ids):
         raise RuntimeError("MERGE failed")

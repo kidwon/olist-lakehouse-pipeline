@@ -26,7 +26,9 @@ def customers(spark, rows):
 
 
 def build(spark, change_rows, item_rows=(), customer_rows=()):
-    rows = gold.build_fact_order_fulfillment(changes(spark, change_rows), items(spark, list(item_rows)), customers(spark, list(customer_rows))).collect()
+    rows = gold.build_fact_order_fulfillment(
+        changes(spark, change_rows), items(spark, list(item_rows)), customers(spark, list(customer_rows))
+    ).collect()
     return {r.order_id: r for r in rows}
 
 
@@ -41,8 +43,20 @@ def lifecycle(order_id="o1", purchase=P, approved=A, shipped=S, delivered=D, est
         if ts is None:
             break
         seq += 1
-        out.append((order_id, "c1", status, purchase, approved, shipped if seq >= 3 else None,
-                    delivered if seq >= 4 else None, estimated, seq, ts))
+        out.append(
+            (
+                order_id,
+                "c1",
+                status,
+                purchase,
+                approved,
+                shipped if seq >= 3 else None,
+                delivered if seq >= 4 else None,
+                estimated,
+                seq,
+                ts,
+            )
+        )
     return out
 
 
@@ -63,9 +77,13 @@ def test_stage_durations_are_hours_and_add_up(spark):
 def test_each_milestone_has_its_own_date_key(spark):
     """Role-playing dim_date: the same date dimension, joined once per milestone."""
     r = build(spark, lifecycle())["o1"]
-    assert (r.purchase_date_key, r.approved_date_key, r.shipped_date_key, r.delivered_date_key, r.estimated_date_key) == (
-        20180601, 20180601, 20180602, 20180605, 20180605
-    )
+    assert (
+        r.purchase_date_key,
+        r.approved_date_key,
+        r.shipped_date_key,
+        r.delivered_date_key,
+        r.estimated_date_key,
+    ) == (20180601, 20180601, 20180602, 20180605, 20180605)
 
 
 def test_delivery_any_time_on_the_estimated_day_is_on_time(spark):
@@ -86,8 +104,12 @@ def test_open_order_has_no_durations_and_is_not_flagged(spark):
 
 
 def test_cancellation_and_unavailability_end_the_order_with_a_reason(spark):
-    cancelled = lifecycle("o1", shipped=None, delivered=None) + [("o1", "c1", "canceled", P, A, None, None, E, 3, T(2018, 6, 1, 13))]
-    unavailable = lifecycle("o2", shipped=None, delivered=None) + [("o2", "c1", "unavailable", P, A, None, None, E, 3, T(2018, 6, 3, 9))]
+    cancelled = lifecycle("o1", shipped=None, delivered=None) + [
+        ("o1", "c1", "canceled", P, A, None, None, E, 3, T(2018, 6, 1, 13))
+    ]
+    unavailable = lifecycle("o2", shipped=None, delivered=None) + [
+        ("o2", "c1", "unavailable", P, A, None, None, E, 3, T(2018, 6, 3, 9))
+    ]
     out = build(spark, cancelled + unavailable)
     assert (out["o1"].end_reason, out["o1"].ended_ts) == ("canceled", T(2018, 6, 1, 13))
     assert (out["o2"].end_reason, out["o2"].ended_ts) == ("unavailable", T(2018, 6, 3, 9))
@@ -106,7 +128,9 @@ def test_inconsistent_timestamps_are_kept_but_never_turned_into_negative_duratio
 
 def test_metric_counts_flagged_orders_as_a_warning(spark):
     fact = gold.build_fact_order_fulfillment(
-        changes(spark, lifecycle("o1") + lifecycle("o2", shipped=T(2018, 6, 1, 9))), items(spark, []), customers(spark, [])
+        changes(spark, lifecycle("o1") + lifecycle("o2", shipped=T(2018, 6, 1, 9))),
+        items(spark, []),
+        customers(spark, []),
     )
     m = gold.inconsistent_milestone_metric(fact, "r1").first()
     assert (m.rule, m.severity, m.failed_rows, m.total_rows) == ("inconsistent_milestones", "warn", 1, 2)
@@ -116,9 +140,19 @@ def test_fact_updates_in_place_as_the_order_moves_forward(spark, table_name):
     """Accumulating snapshot, not a log: a new milestone rewrites the order's row, it never adds one."""
     empty_items, no_customers = items(spark, []), customers(spark, [])
     shipped_so_far = [c for c in lifecycle() if c[8] <= 3]
-    gold.merge_fact(spark, table_name, gold.build_fact_order_fulfillment(changes(spark, shipped_so_far), empty_items, no_customers), ["order_id"])
+    gold.merge_fact(
+        spark,
+        table_name,
+        gold.build_fact_order_fulfillment(changes(spark, shipped_so_far), empty_items, no_customers),
+        ["order_id"],
+    )
     assert spark.table(table_name).first().current_status == "shipped"
-    gold.merge_fact(spark, table_name, gold.build_fact_order_fulfillment(changes(spark, lifecycle()), empty_items, no_customers), ["order_id"])
+    gold.merge_fact(
+        spark,
+        table_name,
+        gold.build_fact_order_fulfillment(changes(spark, lifecycle()), empty_items, no_customers),
+        ["order_id"],
+    )
     rows = spark.table(table_name).collect()
     assert len(rows) == 1 and rows[0].current_status == "delivered" and rows[0].hours_total == 108.0
 
@@ -136,10 +170,16 @@ def test_review_score_sits_next_to_the_delay(spark):
     reviews = spark.createDataFrame([("o1", 2), ("o1", 3), ("o2", 5)], "order_id string, review_score int")
     fact = gold.build_fact_order_fulfillment(
         changes(spark, lifecycle("o1", delivered=T(2018, 6, 8)) + lifecycle("o2") + lifecycle("o3")),
-        items(spark, []), customers(spark, []), reviews,
+        items(spark, []),
+        customers(spark, []),
+        reviews,
     )
     out = {r.order_id: r for r in fact.collect()}
-    assert (out["o1"].review_score, out["o1"].review_count, out["o1"].is_on_time) == (2.5, 2, False)  # mean of 2 reviews
+    assert (out["o1"].review_score, out["o1"].review_count, out["o1"].is_on_time) == (
+        2.5,
+        2,
+        False,
+    )  # mean of 2 reviews
     assert (out["o2"].review_score, out["o2"].review_count, out["o2"].is_on_time) == (5.0, 1, True)
     assert (out["o3"].review_score, out["o3"].review_count) == (None, 0)  # no review: no score is invented
 
@@ -150,7 +190,9 @@ def test_a_new_column_reaches_an_existing_fact_table(spark, table_name):
     gold.merge_fact(spark, table_name, old, ["order_id"])
     # Same hash as the stored row on purpose: a broken earlier deploy can store the new hash while
     # dropping the new column, so a hash comparison alone would never fill it in.
-    new = spark.createDataFrame([("o1", 1, 4.0, "h1")], "order_id string, item_count int, review_score double, row_hash string")
+    new = spark.createDataFrame(
+        [("o1", 1, 4.0, "h1")], "order_id string, item_count int, review_score double, row_hash string"
+    )
     gold.merge_fact(spark, table_name, new, ["order_id"])
     row = spark.table(table_name).first()
     assert "review_score" in spark.table(table_name).columns and row.review_score == 4.0
@@ -158,7 +200,17 @@ def test_a_new_column_reaches_an_existing_fact_table(spark, table_name):
 
 def test_clearing_row_hash_forces_a_refresh(spark, table_name):
     """The repair path for a table whose rows were stored with a stale hash."""
-    gold.merge_fact(spark, table_name, spark.createDataFrame([("o1", None, "h1")], "order_id string, review_score double, row_hash string"), ["order_id"])
+    gold.merge_fact(
+        spark,
+        table_name,
+        spark.createDataFrame([("o1", None, "h1")], "order_id string, review_score double, row_hash string"),
+        ["order_id"],
+    )
     spark.sql(f"UPDATE {table_name} SET row_hash = NULL")
-    gold.merge_fact(spark, table_name, spark.createDataFrame([("o1", 4.0, "h1")], "order_id string, review_score double, row_hash string"), ["order_id"])
+    gold.merge_fact(
+        spark,
+        table_name,
+        spark.createDataFrame([("o1", 4.0, "h1")], "order_id string, review_score double, row_hash string"),
+        ["order_id"],
+    )
     assert spark.table(table_name).first().review_score == 4.0

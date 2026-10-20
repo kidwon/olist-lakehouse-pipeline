@@ -24,8 +24,8 @@ import datetime as dt
 
 from pyspark.sql import Window
 from pyspark.sql import functions as F
-
 from walkthrough_setup import setup
+
 from olist_pipeline import replay
 from olist_pipeline.config import Config
 
@@ -60,19 +60,44 @@ print(f"backfill batch: {cfg.backfill_date}, daily batches: {cfg.first_replay_da
 raw_orders = spark.createDataFrame(
     [
         # delivered normally, partly before and partly after the backfill date
-        ("o1", "c1", "delivered", "2018-05-30 10:00:00", "2018-05-30 10:20:00", "2018-05-31 15:00:00", "2018-06-04 18:00:00", "2018-06-12 00:00:00"),
+        (
+            "o1",
+            "c1",
+            "delivered",
+            "2018-05-30 10:00:00",
+            "2018-05-30 10:20:00",
+            "2018-05-31 15:00:00",
+            "2018-06-04 18:00:00",
+            "2018-06-12 00:00:00",
+        ),
         # approved, then cancelled: the final status is added one hour after the last timestamp
         ("o2", "c2", "canceled", "2018-06-02 08:00:00", "2018-06-02 09:00:00", None, None, "2018-06-20 00:00:00"),
         # real Olist row (7c48bb55...): carrier date 2018-01-26 for a purchase on 2018-07-16
-        ("o3", "c3", "delivered", "2018-07-16 18:40:53", "2018-07-16 18:50:22", "2018-01-26 13:35:00", "2018-07-23 20:04:45", "2018-08-07 00:00:00"),
+        (
+            "o3",
+            "c3",
+            "delivered",
+            "2018-07-16 18:40:53",
+            "2018-07-16 18:50:22",
+            "2018-01-26 13:35:00",
+            "2018-07-23 20:04:45",
+            "2018-08-07 00:00:00",
+        ),
     ],
     "order_id string, customer_id string, order_status string, order_purchase_timestamp string, order_approved_at string, "
     "order_delivered_carrier_date string, order_delivered_customer_date string, order_estimated_delivery_date string",
 )
 cdc = replay.build_orders_cdc(raw_orders, cfg)
 show(
-    cdc.select("order_id", "change_seq", "order_status", "change_ts", "order_purchase_ts", "order_delivered_customer_ts", "_delivery_date")
-    .orderBy("order_id", "change_seq")
+    cdc.select(
+        "order_id",
+        "change_seq",
+        "order_status",
+        "change_ts",
+        "order_purchase_ts",
+        "order_delivered_customer_ts",
+        "_delivery_date",
+    ).orderBy("order_id", "change_seq")
 )
 
 # COMMAND ----------
@@ -98,16 +123,22 @@ show(
 
 # COMMAND ----------
 
-clean_items = spark.range(5000).select(
-    F.concat(F.lit("o"), F.col("id").cast("string")).alias("order_id"),
-    F.lit(1).alias("order_item_id"),
-    F.lit("p1").alias("product_id"),
-    F.lit("s1").alias("seller_id"),
-    F.expr("timestamp'2018-06-01 12:00:00' + make_interval(0, 0, 0, cast(id % 10 as int))").alias("order_purchase_ts"),
-    F.lit(None).cast("timestamp").alias("shipping_limit_ts"),
-    F.lit(100).cast("decimal(12,2)").alias("price"),
-    F.lit(10).cast("decimal(12,2)").alias("freight_value"),
-).withColumn("_delivery_date", F.to_date("order_purchase_ts"))
+clean_items = (
+    spark.range(5000)
+    .select(
+        F.concat(F.lit("o"), F.col("id").cast("string")).alias("order_id"),
+        F.lit(1).alias("order_item_id"),
+        F.lit("p1").alias("product_id"),
+        F.lit("s1").alias("seller_id"),
+        F.expr("timestamp'2018-06-01 12:00:00' + make_interval(0, 0, 0, cast(id % 10 as int))").alias(
+            "order_purchase_ts"
+        ),
+        F.lit(None).cast("timestamp").alias("shipping_limit_ts"),
+        F.lit(100).cast("decimal(12,2)").alias("price"),
+        F.lit(10).cast("decimal(12,2)").alias("freight_value"),
+    )
+    .withColumn("_delivery_date", F.to_date("order_purchase_ts"))
+)
 
 dirty = replay.inject_item_anomalies(clean_items, cfg)
 print(f"clean rows: {clean_items.count()}, rows delivered after injection: {dirty.count()}")
@@ -134,7 +165,15 @@ examples = (
     dirty.where(F.col("_anomaly").isNotNull())
     .withColumn("_rn", F.row_number().over(Window.partitionBy("_anomaly").orderBy("order_id")))
     .where("_rn = 1")
-    .select("_anomaly", "order_id", "product_id", "price", F.to_date("order_purchase_ts").alias("sold_on"), "_delivery_date", "discount_amount")
+    .select(
+        "_anomaly",
+        "order_id",
+        "product_id",
+        "price",
+        F.to_date("order_purchase_ts").alias("sold_on"),
+        "_delivery_date",
+        "discount_amount",
+    )
     .orderBy("_anomaly")
 )
 show(examples)

@@ -17,8 +17,8 @@
 import datetime as dt
 
 from pyspark.sql import functions as F
-
 from walkthrough_setup import fresh_table, setup
+
 from olist_pipeline import gold, silver
 
 spark, SCHEMA = setup()
@@ -34,24 +34,39 @@ E = T(2018, 6, 12)  # estimated delivery date for every demo order
 # Each tuple is one CDC change (an after-image): the order's timestamps as known at that change.
 all_changes = [
     # o1: a normal order, delivered on day 5
-    ("o1", "c1", "created",   T(2018, 6, 1, 10), None,              None,              None,              E, 1, T(2018, 6, 1, 10)),
-    ("o1", "c1", "approved",  T(2018, 6, 1, 10), T(2018, 6, 1, 11), None,              None,              E, 2, T(2018, 6, 1, 11)),
-    ("o1", "c1", "shipped",   T(2018, 6, 1, 10), T(2018, 6, 1, 11), T(2018, 6, 2, 15), None,              E, 3, T(2018, 6, 2, 15)),
-    ("o1", "c1", "delivered", T(2018, 6, 1, 10), T(2018, 6, 1, 11), T(2018, 6, 2, 15), T(2018, 6, 6, 15), E, 4, T(2018, 6, 6, 15)),
+    ("o1", "c1", "created", T(2018, 6, 1, 10), None, None, None, E, 1, T(2018, 6, 1, 10)),
+    ("o1", "c1", "approved", T(2018, 6, 1, 10), T(2018, 6, 1, 11), None, None, E, 2, T(2018, 6, 1, 11)),
+    ("o1", "c1", "shipped", T(2018, 6, 1, 10), T(2018, 6, 1, 11), T(2018, 6, 2, 15), None, E, 3, T(2018, 6, 2, 15)),
+    (
+        "o1",
+        "c1",
+        "delivered",
+        T(2018, 6, 1, 10),
+        T(2018, 6, 1, 11),
+        T(2018, 6, 2, 15),
+        T(2018, 6, 6, 15),
+        E,
+        4,
+        T(2018, 6, 6, 15),
+    ),
     # o2: approved, then cancelled
-    ("o2", "c2", "created",   T(2018, 6, 1, 12), None,              None,              None,              E, 1, T(2018, 6, 1, 12)),
-    ("o2", "c2", "approved",  T(2018, 6, 1, 12), T(2018, 6, 1, 13), None,              None,              E, 2, T(2018, 6, 1, 13)),
-    ("o2", "c2", "canceled",  T(2018, 6, 1, 12), T(2018, 6, 1, 13), None,              None,              E, 3, T(2018, 6, 2, 9)),
+    ("o2", "c2", "created", T(2018, 6, 1, 12), None, None, None, E, 1, T(2018, 6, 1, 12)),
+    ("o2", "c2", "approved", T(2018, 6, 1, 12), T(2018, 6, 1, 13), None, None, E, 2, T(2018, 6, 1, 13)),
+    ("o2", "c2", "canceled", T(2018, 6, 1, 12), T(2018, 6, 1, 13), None, None, E, 3, T(2018, 6, 2, 9)),
     # o3: like 559 real Olist orders, handed to the carrier BEFORE payment was approved
-    ("o3", "c3", "created",   T(2018, 6, 3, 9),  None,              None,              None,              E, 1, T(2018, 6, 3, 9)),
-    ("o3", "c3", "shipped",   T(2018, 6, 3, 9),  None,              T(2018, 6, 3, 14), None,              E, 2, T(2018, 6, 3, 14)),
-    ("o3", "c3", "approved",  T(2018, 6, 3, 9),  T(2018, 6, 3, 20), T(2018, 6, 3, 14), None,              E, 3, T(2018, 6, 3, 20)),
+    ("o3", "c3", "created", T(2018, 6, 3, 9), None, None, None, E, 1, T(2018, 6, 3, 9)),
+    ("o3", "c3", "shipped", T(2018, 6, 3, 9), None, T(2018, 6, 3, 14), None, E, 2, T(2018, 6, 3, 14)),
+    ("o3", "c3", "approved", T(2018, 6, 3, 9), T(2018, 6, 3, 20), T(2018, 6, 3, 14), None, E, 3, T(2018, 6, 3, 20)),
     # o4: still on its way
-    ("o4", "c4", "created",   T(2018, 6, 5, 8),  None,              None,              None,              E, 1, T(2018, 6, 5, 8)),
-    ("o4", "c4", "approved",  T(2018, 6, 5, 8),  T(2018, 6, 5, 9),  None,              None,              E, 2, T(2018, 6, 5, 9)),
+    ("o4", "c4", "created", T(2018, 6, 5, 8), None, None, None, E, 1, T(2018, 6, 5, 8)),
+    ("o4", "c4", "approved", T(2018, 6, 5, 8), T(2018, 6, 5, 9), None, None, E, 2, T(2018, 6, 5, 9)),
 ]
-items = spark.createDataFrame([("o1", 120.0), ("o1", 30.0), ("o2", 80.0), ("o3", 45.0), ("o4", 60.0)], "order_id string, price double")
-customers = spark.createDataFrame([("c1", "ana"), ("c2", "bruno"), ("c3", "carla"), ("c4", "ana")], "customer_id string, customer_unique_id string")
+items = spark.createDataFrame(
+    [("o1", 120.0), ("o1", 30.0), ("o2", 80.0), ("o3", 45.0), ("o4", 60.0)], "order_id string, price double"
+)
+customers = spark.createDataFrame(
+    [("c1", "ana"), ("c2", "bruno"), ("c3", "carla"), ("c4", "ana")], "customer_id string, customer_unique_id string"
+)
 
 # COMMAND ----------
 
@@ -95,11 +110,32 @@ print(f"changes delivered twice: {2 * log_rows.count()}, rows in the log: {spark
 
 fact = gold.build_fact_order_fulfillment(spark.table(LOG), items, customers)
 show(
-    fact.select("order_id", "customer_unique_id", "current_status", "end_reason", "hours_to_approve", "hours_to_ship",
-                "hours_in_transit", "hours_total", "hours_late", "is_on_time", "has_inconsistent_milestones", "item_count", "order_value")
-    .orderBy("order_id")
+    fact.select(
+        "order_id",
+        "customer_unique_id",
+        "current_status",
+        "end_reason",
+        "hours_to_approve",
+        "hours_to_ship",
+        "hours_in_transit",
+        "hours_total",
+        "hours_late",
+        "is_on_time",
+        "has_inconsistent_milestones",
+        "item_count",
+        "order_value",
+    ).orderBy("order_id")
 )
-show(fact.select("order_id", "purchase_date_key", "approved_date_key", "shipped_date_key", "delivered_date_key", "estimated_date_key").orderBy("order_id"))
+show(
+    fact.select(
+        "order_id",
+        "purchase_date_key",
+        "approved_date_key",
+        "shipped_date_key",
+        "delivered_date_key",
+        "estimated_date_key",
+    ).orderBy("order_id")
+)
 
 # COMMAND ----------
 
@@ -122,17 +158,39 @@ FACT = fresh_table(spark, SCHEMA, "demo_fact_order_fulfillment")
 gold.merge_fact(spark, FACT, fact, ["order_id"])
 
 later = [
-    ("o4", "c4", "shipped",   T(2018, 6, 5, 8), T(2018, 6, 5, 9), T(2018, 6, 6, 10), None,               E, 3, T(2018, 6, 6, 10)),
-    ("o4", "c4", "delivered", T(2018, 6, 5, 8), T(2018, 6, 5, 9), T(2018, 6, 6, 10), T(2018, 6, 13, 16), E, 4, T(2018, 6, 13, 16)),
+    ("o4", "c4", "shipped", T(2018, 6, 5, 8), T(2018, 6, 5, 9), T(2018, 6, 6, 10), None, E, 3, T(2018, 6, 6, 10)),
+    (
+        "o4",
+        "c4",
+        "delivered",
+        T(2018, 6, 5, 8),
+        T(2018, 6, 5, 9),
+        T(2018, 6, 6, 10),
+        T(2018, 6, 13, 16),
+        E,
+        4,
+        T(2018, 6, 13, 16),
+    ),
 ]
 silver.merge_insert_new(spark, LOG, spark.createDataFrame(later, CHANGE_SCHEMA), ["order_id", "change_seq"])
 gold.merge_fact(spark, FACT, gold.build_fact_order_fulfillment(spark.table(LOG), items, customers), ["order_id"])
 
-show(spark.table(FACT).where("order_id = 'o4'").select("order_id", "current_status", "hours_in_transit", "hours_total", "hours_late", "is_on_time"))
+show(
+    spark.table(FACT)
+    .where("order_id = 'o4'")
+    .select("order_id", "current_status", "hours_in_transit", "hours_total", "hours_late", "is_on_time")
+)
 print(f"rows in the fact: {spark.table(FACT).count()}")
-show(spark.sql(f"DESCRIBE HISTORY {FACT}").where("operation = 'MERGE'")
-     .select("version", F.col("operationMetrics.numTargetRowsInserted").alias("inserted"),
-             F.col("operationMetrics.numTargetRowsUpdated").alias("updated")).orderBy("version"))
+show(
+    spark.sql(f"DESCRIBE HISTORY {FACT}")
+    .where("operation = 'MERGE'")
+    .select(
+        "version",
+        F.col("operationMetrics.numTargetRowsInserted").alias("inserted"),
+        F.col("operationMetrics.numTargetRowsUpdated").alias("updated"),
+    )
+    .orderBy("version")
+)
 
 # COMMAND ----------
 
@@ -168,7 +226,11 @@ show(spark.sql(f"DESCRIBE HISTORY {FACT}").where("operation = 'MERGE'")
 
 reviews = spark.createDataFrame([("o1", 5), ("o4", 2), ("o4", 3)], "order_id string, review_score int")
 rated = gold.build_fact_order_fulfillment(spark.table(LOG), items, customers, reviews)
-show(rated.select("order_id", "current_status", "hours_late", "is_on_time", "review_score", "review_count").orderBy("order_id"))
+show(
+    rated.select("order_id", "current_status", "hours_late", "is_on_time", "review_score", "review_count").orderBy(
+        "order_id"
+    )
+)
 
 # COMMAND ----------
 

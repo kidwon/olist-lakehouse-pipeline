@@ -24,8 +24,8 @@ import datetime as dt
 from decimal import Decimal
 
 from pyspark.sql import functions as F
-
 from walkthrough_setup import fresh_table, setup
+
 from olist_pipeline import gold
 
 spark, SCHEMA = setup()
@@ -45,20 +45,29 @@ def ch(order_id, customer, status, seq, ts, purchase, estimated=T(2018, 6, 6)):
 P1, P2, P3 = T(2018, 6, 1, 10), T(2018, 6, 2, 9), T(2018, 5, 1, 9)
 changes = [
     # o1 (SP): approved on 06-01, shipped 06-03, delivered 06-07
-    ch("o1", "c1", "created", 1, P1, P1), ch("o1", "c1", "approved", 2, T(2018, 6, 1, 11), P1),
-    ch("o1", "c1", "shipped", 3, T(2018, 6, 3, 9), P1), ch("o1", "c1", "delivered", 4, T(2018, 6, 7, 15), P1),
+    ch("o1", "c1", "created", 1, P1, P1),
+    ch("o1", "c1", "approved", 2, T(2018, 6, 1, 11), P1),
+    ch("o1", "c1", "shipped", 3, T(2018, 6, 3, 9), P1),
+    ch("o1", "c1", "delivered", 4, T(2018, 6, 7, 15), P1),
     # o2 (RJ): approved 06-02, cancelled 06-04
-    ch("o2", "c2", "created", 1, P2, P2), ch("o2", "c2", "approved", 2, T(2018, 6, 2, 10), P2),
+    ch("o2", "c2", "created", 1, P2, P2),
+    ch("o2", "c2", "approved", 2, T(2018, 6, 2, 10), P2),
     ch("o2", "c2", "canceled", 3, T(2018, 6, 4, 12), P2),
     # o3 (SP): stuck in "processing" since May, like 300 real Olist orders
-    ch("o3", "c3", "created", 1, P3, P3, T(2018, 5, 20)), ch("o3", "c3", "processing", 2, T(2018, 5, 1, 12), P3, T(2018, 5, 20)),
+    ch("o3", "c3", "created", 1, P3, P3, T(2018, 5, 20)),
+    ch("o3", "c3", "processing", 2, T(2018, 5, 1, 12), P3, T(2018, 5, 20)),
 ]
-items = spark.createDataFrame([("o1", Decimal("100")), ("o2", Decimal("40")), ("o3", Decimal("75"))], "order_id string, price decimal(12,2)")
-customers = spark.createDataFrame([("c1", "SP"), ("c2", "RJ"), ("c3", "SP")], "customer_id string, customer_state string")
+items = spark.createDataFrame(
+    [("o1", Decimal("100")), ("o2", Decimal("40")), ("o3", Decimal("75"))], "order_id string, price decimal(12,2)"
+)
+customers = spark.createDataFrame(
+    [("c1", "SP"), ("c2", "RJ"), ("c3", "SP")], "customer_id string, customer_state string"
+)
 
 
 def backlog(rows):
     return gold.build_fact_daily_order_backlog(spark.createDataFrame(rows, CHANGE_SCHEMA), items, customers)
+
 
 # COMMAND ----------
 
@@ -78,10 +87,20 @@ def backlog(rows):
 # COMMAND ----------
 
 snapshot = backlog(changes)
-show(snapshot.where("snapshot_date BETWEEN DATE'2018-06-01' AND DATE'2018-06-07'")
-     .select("snapshot_date", "order_status", "customer_state", "open_orders", "open_order_value",
-             "median_age_days", "orders_open_over_30_days", "overdue_orders")
-     .orderBy("snapshot_date", "order_status", "customer_state"))
+show(
+    snapshot.where("snapshot_date BETWEEN DATE'2018-06-01' AND DATE'2018-06-07'")
+    .select(
+        "snapshot_date",
+        "order_status",
+        "customer_state",
+        "open_orders",
+        "open_order_value",
+        "median_age_days",
+        "orders_open_over_30_days",
+        "overdue_orders",
+    )
+    .orderBy("snapshot_date", "order_status", "customer_state")
+)
 
 # COMMAND ----------
 
@@ -100,8 +119,13 @@ show(snapshot.where("snapshot_date BETWEEN DATE'2018-06-01' AND DATE'2018-06-07'
 
 # COMMAND ----------
 
-show(snapshot.where("order_status = 'processing' AND snapshot_date IN (DATE'2018-05-01', DATE'2018-05-31', DATE'2018-06-01', DATE'2018-06-07')")
-     .select("snapshot_date", "open_orders", "median_age_days", "orders_open_over_30_days", "overdue_orders").orderBy("snapshot_date"))
+show(
+    snapshot.where(
+        "order_status = 'processing' AND snapshot_date IN (DATE'2018-05-01', DATE'2018-05-31', DATE'2018-06-01', DATE'2018-06-07')"
+    )
+    .select("snapshot_date", "open_orders", "median_age_days", "orders_open_over_30_days", "overdue_orders")
+    .orderBy("snapshot_date")
+)
 
 # COMMAND ----------
 
@@ -130,15 +154,30 @@ BACKLOG = fresh_table(spark, SCHEMA, "demo_fact_daily_order_backlog")
 before_late = [c for c in changes if not (c[0] == "o1" and c[2] == "shipped")]
 gold.merge_fact(spark, BACKLOG, backlog(before_late), gold.BACKLOG_KEYS, delete_missing=True)
 print("before the late change, SP on 06-04:")
-show(spark.table(BACKLOG).where("snapshot_date = DATE'2018-06-04' AND customer_state = 'SP'").select("order_status", "open_orders"))
+show(
+    spark.table(BACKLOG)
+    .where("snapshot_date = DATE'2018-06-04' AND customer_state = 'SP'")
+    .select("order_status", "open_orders")
+)
 
 gold.merge_fact(spark, BACKLOG, backlog(changes), gold.BACKLOG_KEYS, delete_missing=True)
 print("after the late 'shipped' change arrived, SP on 06-04:")
-show(spark.table(BACKLOG).where("snapshot_date = DATE'2018-06-04' AND customer_state = 'SP'").select("order_status", "open_orders"))
-show(spark.sql(f"DESCRIBE HISTORY {BACKLOG}").where("operation = 'MERGE'")
-     .select("version", F.col("operationMetrics.numTargetRowsInserted").alias("inserted"),
-             F.col("operationMetrics.numTargetRowsUpdated").alias("updated"),
-             F.col("operationMetrics.numTargetRowsDeleted").alias("deleted")).orderBy("version"))
+show(
+    spark.table(BACKLOG)
+    .where("snapshot_date = DATE'2018-06-04' AND customer_state = 'SP'")
+    .select("order_status", "open_orders")
+)
+show(
+    spark.sql(f"DESCRIBE HISTORY {BACKLOG}")
+    .where("operation = 'MERGE'")
+    .select(
+        "version",
+        F.col("operationMetrics.numTargetRowsInserted").alias("inserted"),
+        F.col("operationMetrics.numTargetRowsUpdated").alias("updated"),
+        F.col("operationMetrics.numTargetRowsDeleted").alias("deleted"),
+    )
+    .orderBy("version")
+)
 
 # COMMAND ----------
 

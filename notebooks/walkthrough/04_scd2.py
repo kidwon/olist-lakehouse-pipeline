@@ -16,9 +16,8 @@
 
 import datetime as dt
 
-from pyspark.sql import functions as F
-
 from walkthrough_setup import fresh_table, setup
+
 from olist_pipeline import gold, scd2
 
 spark, SCHEMA = setup()
@@ -27,11 +26,18 @@ HISTORY = fresh_table(spark, SCHEMA, "demo_seller_history")
 
 
 def snapshot(*rows):
-    return spark.createDataFrame(list(rows), "seller_id string, seller_zip_code_prefix string, seller_city string, seller_state string")
+    return spark.createDataFrame(
+        list(rows), "seller_id string, seller_zip_code_prefix string, seller_city string, seller_state string"
+    )
 
 
 def history():
-    return spark.table(HISTORY).select("seller_id", "seller_city", "seller_state", "valid_from", "valid_to", "is_current").orderBy("seller_id", "valid_from")
+    return (
+        spark.table(HISTORY)
+        .select("seller_id", "seller_city", "seller_state", "valid_from", "valid_to", "is_current")
+        .orderBy("seller_id", "valid_from")
+    )
+
 
 # COMMAND ----------
 
@@ -51,8 +57,13 @@ def history():
 # COMMAND ----------
 
 scd2.apply_snapshot(
-    spark, HISTORY,
-    snapshot(("s1", "01001", "sao paulo", "SP"), ("s2", "20001", "rio de janeiro", "RJ"), ("s3", "30001", "belo horizonte", "MG")),
+    spark,
+    HISTORY,
+    snapshot(
+        ("s1", "01001", "sao paulo", "SP"),
+        ("s2", "20001", "rio de janeiro", "RJ"),
+        ("s3", "30001", "belo horizonte", "MG"),
+    ),
     dt.date(2018, 5, 31),
 )
 show(history())
@@ -76,8 +87,9 @@ show(history())
 
 moved = snapshot(("s1", "01001", "curitiba", "PR"), ("s2", "20001", "rio de janeiro", "RJ"))
 show(
-    scd2.stage_changes(spark.table(HISTORY), moved, dt.date(2018, 6, 3))
-    .select("merge_key", "seller_id", "seller_city", "valid_from")
+    scd2.stage_changes(spark.table(HISTORY), moved, dt.date(2018, 6, 3)).select(
+        "merge_key", "seller_id", "seller_city", "valid_from"
+    )
 )
 
 # COMMAND ----------
@@ -103,7 +115,9 @@ show(history())
 # COMMAND ----------
 
 before = spark.table(HISTORY).count()
-print(f"staged rows for the repeated snapshot: {scd2.stage_changes(spark.table(HISTORY), moved, dt.date(2018, 6, 3)).count()}")
+print(
+    f"staged rows for the repeated snapshot: {scd2.stage_changes(spark.table(HISTORY), moved, dt.date(2018, 6, 3)).count()}"
+)
 scd2.apply_snapshot(spark, HISTORY, moved, dt.date(2018, 6, 3))
 print(f"versions before: {before}, after: {spark.table(HISTORY).count()}")
 show(history())
@@ -126,8 +140,10 @@ show(history())
 # COMMAND ----------
 
 items = spark.createDataFrame(
-    [("before_move", 1, "p1", "s1", dt.datetime(2018, 6, 2, 12), 100.0, 10.0, 0),
-     ("after_move", 1, "p1", "s1", dt.datetime(2018, 6, 5, 12), 80.0, 10.0, 0)],
+    [
+        ("before_move", 1, "p1", "s1", dt.datetime(2018, 6, 2, 12), 100.0, 10.0, 0),
+        ("after_move", 1, "p1", "s1", dt.datetime(2018, 6, 5, 12), 80.0, 10.0, 0),
+    ],
     "order_id string, order_item_id int, product_id string, seller_id string, order_purchase_ts timestamp, price double, freight_value double, arrival_lag_days int",
 )
 orders = spark.createDataFrame(
