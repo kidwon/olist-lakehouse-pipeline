@@ -68,7 +68,7 @@
       "name": "ops_incremental",
       "displayName": "ops_incremental",
       "queryLines": [
-        "SELECT date_trunc('MINUTE', timestamp) AS refreshed_at,\n",
+        "SELECT date_format(date_trunc('MINUTE', timestamp), 'MM-dd HH:mm') AS refreshed_at,\n",
         "replace(get_json_object(t, '$.maintenance_type'), 'MAINTENANCE_TYPE_', '') AS technique,\n",
         "COUNT(*) AS views\n",
         "FROM workspace.olist_sdp.event_log\n",
@@ -697,7 +697,7 @@
                   "fieldName": "refreshed_at",
                   "displayName": "更新日時",
                   "scale": {
-                    "type": "temporal"
+                    "type": "categorical"
                   }
                 },
                 "y": {

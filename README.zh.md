@@ -105,11 +105,19 @@ replay_batch ─┬─ bronze → silver → dim_seller_scd2 → dq_gate → gol
 
 ### 截图（Databricks Free Edition）
 
-**每日作业 `olist_daily`**：在 serverless 上依次运行 7 个任务，每次约 6 分半（连续成功 11 次）。这些截图早于 ADR-0013；ADR-0013 在同一个作业里加入了声明式管道和对账。
+**每日作业 `olist_daily`**：`replay_batch` 之后，命令式任务（下面一排）和声明式管道的两次刷新（上面一排）在 serverless 上并行运行，两边都完成后执行 `reconcile`。每次约 6 分钟。
 
 ![olist_daily 任务 DAG](docs/images/job_dag.png)
 
 ![olist_daily 运行时间线](docs/images/job_run_timeline.png)
+
+**对账（`reconcile` 任务的输出）**：16 张表，只在一边出现的行都是 0。
+
+![对账输出：16 张表，差异 0 行](docs/images/reconcile_output.png)
+
+**声明式看板：物化视图的刷新方式**：每根柱子是一次管道更新。全量刷新时所有视图都整张重算（蓝色）；上游没有新数据的每日更新，所有视图都直接跳过（黄色，NO_OP）。由平台决定，并记录在事件日志里。
+
+![物化视图的刷新方式](docs/images/sdp_mv_refresh.png)
 
 **数据质量 Dashboard**：11 次运行的坏行比例都远低于 5% 阈值（最高 2.1%），没有运行被闸门拦下。可以按天查看各规则隔离的行数，以及去重和字段转存的行数。
 

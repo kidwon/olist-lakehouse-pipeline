@@ -95,7 +95,7 @@ OPS_SDP = {
         FROM {SDP}.quarantine
         ORDER BY quarantined_at DESC""",
     "ops_incremental": f"""
-        SELECT date_trunc('MINUTE', timestamp) AS refreshed_at,
+        SELECT date_format(date_trunc('MINUTE', timestamp), 'MM-dd HH:mm') AS refreshed_at,
                replace(get_json_object(t, '$.maintenance_type'), 'MAINTENANCE_TYPE_', '') AS technique,
                COUNT(*) AS views
         FROM {SDP}.event_log
@@ -377,7 +377,8 @@ def quality_page(sdp: bool) -> list:
                 "bar",
                 "ops_incremental",
                 "マテリアライズドビューの更新方法 / How the platform refreshed each materialized view",
-                ("refreshed_at", "更新日時", "temporal"),
+                # One bar per refresh: they cluster within minutes, so a time axis squeezes them into lines.
+                ("refreshed_at", "更新日時", "categorical"),
                 ("views", "ビュー数", "quantitative"),
                 ("technique", "更新方法", "categorical"),
             )

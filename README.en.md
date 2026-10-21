@@ -132,13 +132,23 @@ handled:
 
 ### Screenshots (Databricks Free Edition)
 
-**Daily job `olist_daily`:** 7 tasks run in sequence on serverless compute, about 6.5 minutes
-per run (11 successful runs in a row). These screenshots predate ADR-0013, which added the
-declarative pipeline and the reconciliation to the same job.
+**Daily job `olist_daily`:** after `replay_batch`, the imperative tasks (bottom row) and the
+declarative pipeline's two refreshes (top row) run in parallel on serverless compute, and
+`reconcile` runs once both have finished. About 6 minutes per run.
 
 ![olist_daily task DAG](docs/images/job_dag.png)
 
 ![olist_daily run timeline](docs/images/job_run_timeline.png)
+
+**Reconciliation (`reconcile` task output):** 16 tables, no row found on only one side.
+
+![Reconciliation output: 16 tables, 0 differing rows](docs/images/reconcile_output.png)
+
+**Declarative dashboard, refresh of the materialized views:** each bar is one pipeline update.
+Full refreshes recompute every view (blue); a daily update with nothing new upstream is a no-op
+for every view (yellow). The platform decides, and its event log records it.
+
+![How the platform refreshed each materialized view](docs/images/sdp_mv_refresh.png)
 
 **Data quality dashboard:** across all 11 runs the bad-row ratio stays far below the 5%
 threshold (max 2.1%), and no run was blocked. Quarantined rows per rule, and duplicates removed /
