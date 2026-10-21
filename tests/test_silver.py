@@ -47,6 +47,36 @@ def test_keep_first_removes_in_batch_duplicates(spark):
     assert sorted((r.order_item_id, r.f) for r in out.collect()) == [(1, "a"), (2, "c")]
 
 
+def _deliveries(spark, rows):
+    return spark.createDataFrame(
+        rows,
+        "order_id string, order_item_id int, f string, _batch_date date, _ingested_at timestamp, _source_file string",
+    )
+
+
+def test_first_delivery_wins_when_several_days_arrive_in_one_run(spark):
+    """A fresh deployment ingests every day at once: one ingestion time for all of them. The
+    re-sent copy from the next day must still lose, or its arrival lag is a day off."""
+    d1, d2 = dt.date(2018, 6, 1), dt.date(2018, 6, 2)
+    df = _deliveries(
+        spark,
+        [
+            ("o1", 1, "re-sent", d2, T0, "batch_date=2018-06-02/a"),
+            ("o1", 1, "original", d1, T0, "batch_date=2018-06-01/b"),
+        ],
+    )
+    assert [r.f for r in silver.first_delivery(df, ["order_id", "order_item_id"]).collect()] == ["original"]
+
+
+def test_latest_delivery_wins_when_several_days_arrive_in_one_run(spark):
+    d1, d2 = dt.date(2018, 6, 1), dt.date(2018, 6, 2)
+    df = _deliveries(
+        spark,
+        [("o1", 1, "old", d1, T0, "batch_date=2018-06-01/a"), ("o1", 1, "new", d2, T0, "batch_date=2018-06-02/a")],
+    )
+    assert [r.f for r in silver.latest_delivery(df, ["order_id", "order_item_id"]).collect()] == ["new"]
+
+
 # --- CDC --------------------------------------------------------------------
 def test_latest_change_wins_regardless_of_arrival_order(spark):
     df = orders_df(spark, [("o1", "delivered", 4, T0), ("o1", "created", 1, T0), ("o1", "shipped", 3, T0)])

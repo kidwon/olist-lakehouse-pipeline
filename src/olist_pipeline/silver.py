@@ -31,6 +31,21 @@ def keep_first(df: DataFrame, keys: list[str], order_by: list) -> DataFrame:
     return df.withColumn("_rn", F.row_number().over(w)).where("_rn = 1").drop("_rn")
 
 
+def first_delivery(df: DataFrame, keys: list[str]) -> DataFrame:
+    """Append-only feeds: the copy from the earliest delivery wins.
+
+    Ordered by the delivery date in the file path, not by ingestion time: when several days
+    are ingested in one run (a fresh deployment, catching up after an outage) they all share one
+    ingestion time, and the copy kept would be arbitrary (found by reconciling, ADR-0013).
+    """
+    return keep_first(df, keys, [F.col("_batch_date"), F.col("_ingested_at"), F.col("_source_file")])
+
+
+def latest_delivery(df: DataFrame, keys: list[str], *then) -> DataFrame:
+    """Upserted feeds: the copy from the latest delivery wins; `then` breaks ties within one."""
+    return keep_first(df, keys, [F.col("_batch_date").desc(), *then, F.col("_ingested_at").desc()])
+
+
 def latest_change_per_order(df: DataFrame) -> DataFrame:
     """Several changes for one order can arrive together (and out of order): keep the highest change_seq."""
     return keep_first(df, ["order_id"], [F.col("change_seq").desc(), F.col("_ingested_at").desc()])
@@ -160,7 +175,7 @@ def order_items(spark: SparkSession, cfg: Config) -> None:
         looked_up = mb.join(F.broadcast(known), "product_id", "left").fillna({"_product_known": False})
         good = dq.record(s, cfg, dq.evaluate(looked_up, rules), rules, "order_items", cols)
 
-        deduped = keep_first(good, keys, [F.col("_ingested_at"), F.col("_source_file")])
+        deduped = first_delivery(good, keys)
         rows = add_lateness(deduped, cfg).select(*cols, "event_date", "arrival_lag_days", *LINEAGE)
         t = ensure_table(s, target_name, rows)
 
@@ -203,7 +218,7 @@ def order_changes(spark: SparkSession, cfg: Config) -> None:
 
     def fn(mb: DataFrame, _: int) -> None:
         good, _bad = dq.split(dq.evaluate(mb, rules))
-        rows = keep_first(good, keys, [F.col("_ingested_at")]).select(*cols, *LINEAGE)
+        rows = first_delivery(good, keys).select(*cols, *LINEAGE)
         merge_insert_new(mb.sparkSession, cfg.table("silver", "order_changes"), rows, keys)
 
     _stream(spark, cfg, "orders_cdc", "order_changes", fn)
@@ -216,7 +231,7 @@ def customers(spark: SparkSession, cfg: Config) -> None:
     def fn(mb: DataFrame, _: int) -> None:
         s = mb.sparkSession
         good = dq.record(s, cfg, dq.evaluate(mb, rules), rules, "customers", cols)
-        latest = keep_first(good, ["customer_id"], [F.col("_ingested_at").desc()]).select(*cols, *LINEAGE)
+        latest = latest_delivery(good, ["customer_id"]).select(*cols, *LINEAGE)
         merge_upsert(s, cfg.table("silver", "customers"), latest, ["customer_id"])
 
     _stream(spark, cfg, "customers", "customers", fn)
@@ -230,7 +245,7 @@ def reviews(spark: SparkSession, cfg: Config) -> None:
     def fn(mb: DataFrame, _: int) -> None:
         s = mb.sparkSession
         good = dq.record(s, cfg, dq.evaluate(mb, rules), rules, "reviews", cols)
-        latest = keep_first(good, keys, [F.col("review_answer_ts").desc_nulls_last()]).select(*cols, *LINEAGE)
+        latest = latest_delivery(good, keys, F.col("review_answer_ts").desc_nulls_last()).select(*cols, *LINEAGE)
         merge_upsert(s, cfg.table("silver", "reviews"), latest, keys)
 
     _stream(spark, cfg, "reviews", "reviews", fn)
