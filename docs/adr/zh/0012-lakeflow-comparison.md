@@ -2,7 +2,7 @@
 
 [日本語](../ja/0012-lakeflow-comparison.md) | [English](../en/0012-lakeflow-comparison.md) | **中文**
 
-**状态：** 已采纳
+**状态：** 已采纳；其中的决定（声明式只作参考）已被 [ADR-0013](0013-two-implementations.md) 取代。
 
 ## 背景
 ADR-0008 为了展示机制本身选择了命令式（Structured Streaming + MERGE），并说这些机制在 Lakeflow 里"各只需一个关键字"。这份 ADR 就来验证这个说法。我们在 `lakeflow/` 里用声明式重写了四个机制（读取文件、只前进的 CDC、由快照生成卖家 SCD2、带隔离的订单明细质量检查），外加 Gold 的事务事实表。SQL 写不了的部分用 Python。管道读取**同一批投递文件**，写到单独的库 `olist_sdp`，这样两边可以核对。免费版每种管道同时只能有一个在运行，所以做成触发运行，而不是持续运行。

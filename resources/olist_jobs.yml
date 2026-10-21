@@ -28,7 +28,8 @@ resources:
             dependencies:
               - ../dist/*.whl
 
-    # Daily: drop the next batch into landing, then run the medallion pipeline on it.
+    # Daily: drop the next batch into landing, then run both implementations on it side by side
+    # (imperative tasks, and the declarative pipeline in two refreshes), then reconcile them.
     olist_daily:
       name: olist_daily
       max_concurrent_runs: 1
@@ -47,7 +48,7 @@ resources:
         timezone_id: Asia/Tokyo
         pause_status: PAUSED
       # Idempotent steps retry once; replay_batch (advances the manifest, so a retry with
-      # batch_date=next could skip a day) and dq_gate (a data failure fails again) do not.
+      # batch_date=next could skip a day) and the gates (a data failure fails again) do not.
       tasks:
         - task_key: replay_batch
           environment_key: default
@@ -107,6 +108,38 @@ resources:
             package_name: olist_pipeline
             entry_point: olist
             parameters: ["mart", "--env", "databricks", "--run-id", "{{job.run_id}}"]
+        # Declarative: bronze, silver, quarantine, metrics and the gate first. A failed gate fails
+        # this refresh (silver is kept), so the gold refresh never starts. No retry, like dq_gate.
+        - task_key: sdp_silver_and_gate
+          depends_on: [{ task_key: replay_batch }]
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.olist_sdp.id}
+            refresh_selection:
+              [
+                bronze_order_items, bronze_orders_cdc, bronze_customers, bronze_reviews, bronze_sellers, bronze_products,
+                checked_order_items, checked_orders_cdc, checked_customers, checked_reviews, checked_sellers, checked_products,
+                quarantine, silver_products, silver_order_items, silver_orders, silver_order_changes, silver_customers,
+                silver_reviews, silver_seller_history, dq_metrics, dq_gate,
+              ]
+        - task_key: sdp_gold
+          max_retries: 1
+          min_retry_interval_millis: 60000
+          depends_on: [{ task_key: sdp_silver_and_gate }]
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.olist_sdp.id}
+            refresh_selection:
+              [
+                dim_date, dim_customer, dim_product, dim_seller, fact_order_item, fact_order_fulfillment,
+                fact_daily_order_backlog, mart_seller_delivery_performance,
+              ]
+        # Both implementations must agree on every table (ADR-0013).
+        - task_key: reconcile
+          depends_on: [{ task_key: mart }, { task_key: sdp_gold }]
+          environment_key: default
+          python_wheel_task:
+            package_name: olist_pipeline
+            entry_point: olist
+            parameters: ["reconcile", "--env", "databricks", "--run-id", "{{job.run_id}}"]
       environments:
         - environment_key: default
           spec:

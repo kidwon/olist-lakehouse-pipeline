@@ -7,6 +7,8 @@
 ブラジルの EC データセット [Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce)（約10万注文）を「毎日ファイルで届くデータ」として再生し、Databricks 上で **増分取り込み → 検証・隔離 → CDC / SCD2 → スタースキーマ** を構築するデータエンジニアリングのポートフォリオです。
 重複・遅延・不正値・CDC の順序逆転・スキーマ変更・セラーの移転を意図的に混入させ、そのすべてをパイプライン自身のメトリクスで検知できることを、テストで証明しています。
 
+仕様全体を **2通り** で実装しています。手書きの Structured Streaming + MERGE と、Lakeflow Spark Declarative Pipelines です。どちらも毎日同じファイルから実行し、突き合わせタスクが 16 テーブルを行単位で比較します（ADR-0013）。
+
 ---
 
 ## アーキテクチャ
@@ -26,7 +28,28 @@ flowchart LR
 ```
 
 Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
-`replay_batch → bronze → silver → dim_seller_scd2 → dq_gate → gold → mart`
+
+```
+replay_batch ─┬─ bronze → silver → dim_seller_scd2 → dq_gate → gold → mart ─┬─ reconcile
+              └─ sdp_silver_and_gate → sdp_gold  (Lakeflow, two refreshes) ──┘
+```
+
+---
+
+## 2つの実装を毎日突き合わせる
+
+| | 命令型（`src/olist_pipeline/`） | 宣言型（`lakeflow/`） |
+|---|---|---|
+| 取り込み | Auto Loader とチェックポイント | `read_files` のストリーミングテーブル |
+| 重複排除・CDC | `foreachBatch` + MERGE | `AUTO CDC ... SEQUENCE BY` |
+| セラーの SCD2 | 手書きの MERGE（`scd2.py`） | `AUTO CDC FROM SNAPSHOT` + 1900 年開始のためのビュー |
+| ルールと隔離 | `quality.py`、`ops.dq_metrics` | ルールは行ごとに一度だけ列挙し、エクスペクテーションが名前で参照。メトリクスはイベントログ |
+| ゲート（不正行 5% 超） | `gate.py` が Gold の前で停止 | `dq_gate` が2回の更新の1回目を失敗させ、2回目の Gold は実行されない |
+| Gold の増分処理 | Change Data Feed と自前のウォーターマーク | マテリアライズドビュー（更新方法はプラットフォームが選択） |
+| テスト | ローカルで 71 件（pytest） | 命令型との毎日の突き合わせ |
+| コード量（コメント除く） | Python 約 1,070 行 | SQL + Python 約 550 行 |
+
+**結果：** 16 テーブル（Silver、ディメンション、3種類のファクト、マート、隔離、ルールのメトリクス）で、差分は 0 行です。突き合わせによって、手書き版の実際の問題が2つ見つかりました。再配信されたスナップショットでセラー情報が巻き戻る問題（ADR-0012）と、再配信データを取り込み時刻で順序付けると、数日分を一度に取り込んだときに誤る問題（ADR-0013）です。
 
 ---
 
@@ -40,7 +63,7 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 | **遅延データ**（どの日に計上するか） | 販売日で計上し、3日以内なら Gold を MERGE で遡って修正。3日超は隔離 | [ADR-0004](docs/adr/ja/0004-late-data.md) | `add_lateness`, `merge_fact` | `test_late_items_are_accepted_and_dated_by_the_sale` |
 | **データ品質**（不正な行はどこへ行き、誰が気付き、いつ止めるか） | ルールごとに隔離しメトリクスを記録。実行単位で不正率 5% を超えたら Gold を公開しない | [ADR-0005](docs/adr/ja/0005-data-quality-gate.md) | [quality.py](src/olist_pipeline/quality.py), [gate.py](src/olist_pipeline/gate.py) | `test_gate_blocked_only_the_poisoned_run` |
 
-その他の判断: [注文フルフィルメントの累積スナップショット](docs/adr/ja/0009-accumulating-snapshot-fulfillment.md)、[日次注文残の定期スナップショット](docs/adr/ja/0010-periodic-snapshot-backlog.md)、[Change Data Feed による Gold の増分処理](docs/adr/ja/0011-incremental-gold-cdf.md)、[同じ仕様の Lakeflow 版との比較](docs/adr/ja/0012-lakeflow-comparison.md)、[データ契約と `_rescued_data`](docs/adr/ja/0006-data-contracts-and-rescued-data.md)、[顧客の名寄せ（`customer_unique_id`）](docs/adr/ja/0007-customer-identity.md)、[命令型と宣言型（Lakeflow）の比較](docs/adr/ja/0008-imperative-vs-declarative.md)
+その他の判断: [注文フルフィルメントの累積スナップショット](docs/adr/ja/0009-accumulating-snapshot-fulfillment.md)、[日次注文残の定期スナップショット](docs/adr/ja/0010-periodic-snapshot-backlog.md)、[Change Data Feed による Gold の増分処理](docs/adr/ja/0011-incremental-gold-cdf.md)、[同じ仕様の Lakeflow 版との比較](docs/adr/ja/0012-lakeflow-comparison.md)、[2つの完全な実装を毎日突き合わせる](docs/adr/ja/0013-two-implementations.md)、[データ契約と `_rescued_data`](docs/adr/ja/0006-data-contracts-and-rescued-data.md)、[顧客の名寄せ（`customer_unique_id`）](docs/adr/ja/0007-customer-identity.md)、[命令型と宣言型（Lakeflow）の比較](docs/adr/ja/0008-imperative-vs-declarative.md)
 
 ---
 
@@ -61,9 +84,9 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 | 購入前の配達日時 | 3 | `delivered_before_purchase` | 3 |
 | 新しいフィールド `discount_amount` | 314 | `rescued_data` | 314 |
 
-### テスト（`uv run pytest`、64件）
-- **単体テスト 45件:** 重複排除、CDC の前進方向マージ、SCD2（冪等性、欠落は削除ではないこと、時点結合）、DQ ルールの境界値、契約パース、顧客の名寄せ、マートの GMV 定義
-- **E2E テスト 19件:** バックフィル＋6日分をリプレイ（最終日は不正率約12%で汚染）。すべての異常の突き合わせ、ゲートが汚染日だけを止めること、再実行で何も変わらないこと、後続の実行で Gold が追い付くことを検証
+### テスト（`uv run pytest`、71件）
+- **単体テスト 51件:** 重複排除、CDC の前進方向マージ、SCD2（冪等性、欠落は削除ではないこと、時点結合）、DQ ルールの境界値、契約パース、顧客の名寄せ、マートの GMV 定義、突き合わせそのもの
+- **E2E テスト 20件:** バックフィル＋6日分をリプレイ（最終日は不正率約12%で汚染）。すべての異常の突き合わせ、ゲートが汚染日だけを止めること、再実行で何も変わらないこと、後続の実行で Gold が追い付くことを検証
 
 ### 実データ（Olist 約10万注文）での実行結果
 
@@ -82,7 +105,7 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 
 ### スクリーンショット（Databricks Free Edition）
 
-**日次ジョブ `olist_daily`**：サーバーレスで 7 タスクを順に実行し、1 回あたり約 6 分半で完了します（11 回連続成功）。
+**日次ジョブ `olist_daily`**：サーバーレスで 7 タスクを順に実行し、1 回あたり約 6 分半で完了します（11 回連続成功）。このスクリーンショットは、同じジョブに宣言型パイプラインと突き合わせを追加した ADR-0013 より前のものです。
 
 ![olist_daily のタスク DAG](docs/images/job_dag.png)
 
@@ -120,7 +143,7 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 | [`07_fulfillment`](notebooks/walkthrough/07_fulfillment.py) | 累積スナップショット、右側打ち切り |
 | [`08_backlog`](notebooks/walkthrough/08_backlog.py) | 定期スナップショット、遅延データによる過去の修正 |
 | [`09_incremental`](notebooks/walkthrough/09_incremental.py) | Change Data Feed による増分処理、全件再構築との一致 |
-| [`10_lakeflow_comparison`](notebooks/walkthrough/10_lakeflow_comparison.py) | 同じ仕様の Lakeflow 版との突き合わせ（Databricks 上のみ） |
+| [`10_lakeflow_comparison`](notebooks/walkthrough/10_lakeflow_comparison.py) | 2つの実装の突き合わせと、宣言型の課題をどう解消したか |
 
 ---
 
@@ -140,7 +163,8 @@ Databricks ジョブ（`resources/olist_jobs.yml`、サーバーレス）:
 | Gold | `olist_gold.dim_{date, customer, product, seller}` | ディメンション（顧客は `customer_unique_id` 単位） |
 | Gold | `olist_gold.mart_seller_delivery_performance` | セラー × 月: GMV、定時配達率、レビュー平均 |
 | Ops | `olist_ops.{dq_metrics, quarantine, dq_gate_log, replay_manifest}` | 品質メトリクス、隔離、ゲート判定、リプレイ計画（正解データ） |
-| Lakeflow | `olist_sdp.*` | 同じ仕様を宣言型で実装した参照版（`lakeflow/`、突き合わせ用、ADR-0012） |
+| Lakeflow | `olist_sdp.*` | 宣言型の実装：同じテーブル（`silver_*`、`dim_*`、`fact_*`、マート、`quarantine`、`dq_metrics`）と `event_log`（ADR-0013） |
+| Ops | `olist_ops.reconcile_log` | 毎日の突き合わせ結果：テーブルごとの片側にしかない行数 |
 | Ops | `olist_ops.{gold_watermarks, gold_incremental_stats}` | Gold の増分処理：ソースごとの処理済みバージョン、実行ごとの再計算件数 |
 
 ---
@@ -163,8 +187,7 @@ uv run olist run-local --base-path ./data       # 実データでバックフィ
 databricks auth login --host https://<your-workspace>.cloud.databricks.com
 ./scripts/download_olist.sh
 ./scripts/deploy_databricks.sh                  # Volume へアップロード → bundle deploy → olist_setup 実行
-databricks bundle run olist_daily               # 1回の実行で1日分を配信して処理（10回繰り返す）
-databricks bundle run olist_sdp                 # Lakeflow 版（同じランディングファイル、比較用、ADR-0012）
+databricks bundle run olist_daily               # 1回の実行で1日分を配信し、両方の実装で処理して突き合わせ（10回繰り返す）
 ```
 
 ---
@@ -181,9 +204,11 @@ src/olist_pipeline/
   scd2.py        セラーの SCD Type 2
   gate.py        DQ ゲート
   gold.py        スタースキーマとマート
+  reconcile.py   2つの実装の毎日の突き合わせ
   cli.py         ジョブタスクのエントリポイント（ローカル / Databricks 共通）
+lakeflow/        宣言型の実装（SQL と、Python で書いたセラーの SCD2）
 tests/           単体テスト、E2E テスト、合成 Olist フィクスチャ
-resources/       Databricks Asset Bundle のジョブ定義
+resources/       Databricks Asset Bundle：ジョブ、宣言型パイプライン、2つのダッシュボード
 docs/adr/        設計判断の記録（日本語 / 英語 / 中国語）
 ```
 

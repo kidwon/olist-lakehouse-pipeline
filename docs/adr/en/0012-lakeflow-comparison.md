@@ -2,7 +2,7 @@
 
 [日本語](../ja/0012-lakeflow-comparison.md) | **English** | [中文](../zh/0012-lakeflow-comparison.md)
 
-**Status:** accepted
+**Status:** accepted; its decision (declarative only as a reference) is superseded by [ADR-0013](0013-two-implementations.md).
 
 ## Context
 ADR-0008 chose imperative Structured Streaming + MERGE to show the mechanics, and claimed each of

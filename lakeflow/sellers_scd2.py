@@ -1,4 +1,4 @@
-"""Seller SCD Type 2 from the daily snapshots, declaratively (ADR-0012, compare ADR-0003).
+"""Seller SCD Type 2 from the daily snapshots, declaratively (ADR-0013, compare ADR-0003).
 
 The SQL form of AUTO CDC FROM SNAPSHOT snapshots a table as it is *now*. The landing zone holds
 one full snapshot per day, so they must be replayed in date order, which needs the Python API:
@@ -36,7 +36,9 @@ def next_snapshot_and_version(latest_snapshot_version):
     if not pending:
         return None
     nxt = min(pending)
-    return spark.read.parquet(f"{SELLERS}/{days[nxt]}").select(*SELLER_COLUMNS), nxt  # noqa: F821
+    snapshot = spark.read.parquet(f"{SELLERS}/{days[nxt]}").select(*SELLER_COLUMNS)  # noqa: F821
+    # A row without a key breaks the missing_key rule: it is quarantined (checked_sellers), never versioned.
+    return snapshot.where("seller_id IS NOT NULL"), nxt
 
 
 dp.create_streaming_table(name="silver_seller_history")

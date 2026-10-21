@@ -12,6 +12,10 @@ The replay injects duplicates, late rows, invalid values, out-of-order CDC, a sc
 and seller relocations on purpose. The tests prove that the pipeline's own metrics catch every
 one of them.
 
+The whole spec is implemented **twice**: hand-written Structured Streaming + MERGE, and Lakeflow
+Spark Declarative Pipelines. Both run every day from the same files, and a reconciliation task
+compares 16 tables row by row (ADR-0013).
+
 ---
 
 ## Architecture
@@ -31,7 +35,31 @@ flowchart LR
 ```
 
 Databricks job (`resources/olist_jobs.yml`, serverless):
-`replay_batch → bronze → silver → dim_seller_scd2 → dq_gate → gold → mart`
+
+```
+replay_batch ─┬─ bronze → silver → dim_seller_scd2 → dq_gate → gold → mart ─┬─ reconcile
+              └─ sdp_silver_and_gate → sdp_gold  (Lakeflow, two refreshes) ──┘
+```
+
+---
+
+## Two implementations, reconciled every day
+
+| | Imperative (`src/olist_pipeline/`) | Declarative (`lakeflow/`) |
+|---|---|---|
+| Ingestion | Auto Loader, checkpoints | `read_files` streaming tables |
+| De-duplication, CDC | `foreachBatch` + MERGE | `AUTO CDC ... SEQUENCE BY` |
+| Seller SCD2 | hand-written MERGE (`scd2.py`) | `AUTO CDC FROM SNAPSHOT` + a view for the 1900 start |
+| Rules and quarantine | `quality.py`, `ops.dq_metrics` | rules listed once per row, expectations name them; metrics in the event log |
+| Gate (> 5% bad rows) | `gate.py` stops before gold | `dq_gate` fails the first of two refreshes; gold is the second |
+| Incremental gold | Change Data Feed + own watermarks | materialized views, refresh chosen by the platform |
+| Tests | 71 local tests (pytest) | daily reconciliation against the imperative version |
+| Code (no comments) | ~1,070 lines of Python | ~550 lines of SQL + Python |
+
+**Result:** 16 tables (silver, dimensions, the three fact types, the mart, quarantine, rule
+metrics), 0 differing rows. Reconciling found two real issues in the hand-written version: a
+re-delivered snapshot rolling sellers back (ADR-0012), and re-deliveries ordered by ingestion
+time, which breaks when several days are ingested at once (ADR-0013).
 
 ---
 
@@ -49,6 +77,7 @@ More decisions: [accumulating snapshot for order fulfillment](docs/adr/en/0009-a
 [periodic snapshot of the daily order backlog](docs/adr/en/0010-periodic-snapshot-backlog.md),
 [incremental gold with Change Data Feed](docs/adr/en/0011-incremental-gold-cdf.md),
 [the same spec in Lakeflow, compared](docs/adr/en/0012-lakeflow-comparison.md),
+[two complete implementations, reconciled daily](docs/adr/en/0013-two-implementations.md),
 [data contracts and `_rescued_data`](docs/adr/en/0006-data-contracts-and-rescued-data.md),
 [customer identity (`customer_unique_id`)](docs/adr/en/0007-customer-identity.md),
 [imperative vs. declarative (Lakeflow)](docs/adr/en/0008-imperative-vs-declarative.md)
@@ -74,11 +103,11 @@ reported. The end-to-end tests assert this on every run.
 | delivered before purchase | 3 | `delivered_before_purchase` | 3 |
 | new field `discount_amount` | 314 | `rescued_data` | 314 |
 
-### Tests (`uv run pytest`, 64 tests)
-- **45 unit tests:** de-duplication, forward-only CDC, SCD2 (idempotency, "missing is not
-  deleted", point-in-time join), DQ rule boundaries, contract parsing, customer identity, and
-  the mart's GMV definition.
-- **19 end-to-end tests:** a backfill plus 6 replayed days, with the last day poisoned at
+### Tests (`uv run pytest`, 71 tests)
+- **51 unit tests:** de-duplication, forward-only CDC, SCD2 (idempotency, "missing is not
+  deleted", point-in-time join), DQ rule boundaries, contract parsing, customer identity, the
+  mart's GMV definition, and the reconciliation itself.
+- **20 end-to-end tests:** a backfill plus 6 replayed days, with the last day poisoned at
   about 12% bad rows. They reconcile every anomaly, check that the gate blocks only the
   poisoned day, check that a rerun changes nothing, and check that gold catches up on the
   next run.
@@ -104,7 +133,8 @@ handled:
 ### Screenshots (Databricks Free Edition)
 
 **Daily job `olist_daily`:** 7 tasks run in sequence on serverless compute, about 6.5 minutes
-per run (11 successful runs in a row).
+per run (11 successful runs in a row). These screenshots predate ADR-0013, which added the
+declarative pipeline and the reconciliation to the same job.
 
 ![olist_daily task DAG](docs/images/job_dag.png)
 
@@ -152,7 +182,7 @@ notebook, so the explanations cannot drift from the code.
 | [`07_fulfillment`](notebooks/walkthrough/07_fulfillment.py) | Accumulating snapshot, right-censoring |
 | [`08_backlog`](notebooks/walkthrough/08_backlog.py) | Periodic snapshot, late data restating past days |
 | [`09_incremental`](notebooks/walkthrough/09_incremental.py) | Incremental gold with Change Data Feed, equal to a full rebuild |
-| [`10_lakeflow_comparison`](notebooks/walkthrough/10_lakeflow_comparison.py) | Reconciliation with the Lakeflow version of the same spec (Databricks only) |
+| [`10_lakeflow_comparison`](notebooks/walkthrough/10_lakeflow_comparison.py) | The two implementations, reconciled; how the declarative gaps were closed |
 
 ---
 
@@ -172,7 +202,8 @@ notebook, so the explanations cannot drift from the code.
 | Gold | `olist_gold.dim_{date, customer, product, seller}` | dimensions; customers are per `customer_unique_id` |
 | Gold | `olist_gold.mart_seller_delivery_performance` | seller × month: GMV, on-time rate, review score |
 | Ops | `olist_ops.{dq_metrics, quarantine, dq_gate_log, replay_manifest}` | quality metrics, quarantine, gate decisions, replay plan (ground truth) |
-| Lakeflow | `olist_sdp.*` | the same spec as a declarative reference implementation (`lakeflow/`, reconciled, ADR-0012) |
+| Lakeflow | `olist_sdp.*` | the declarative implementation: the same tables (`silver_*`, `dim_*`, `fact_*`, mart, `quarantine`, `dq_metrics`), plus `event_log` (ADR-0013) |
+| Ops | `olist_ops.reconcile_log` | the daily reconciliation: rows found only on one side, per table |
 | Ops | `olist_ops.{gold_watermarks, gold_incremental_stats}` | incremental gold: last processed version per source, orders rebuilt per run |
 
 ---
@@ -195,8 +226,7 @@ uv run olist run-local --base-path ./data       # real data: backfill + 10 daily
 databricks auth login --host https://<your-workspace>.cloud.databricks.com
 ./scripts/download_olist.sh
 ./scripts/deploy_databricks.sh                  # upload to a Volume → bundle deploy → run olist_setup
-databricks bundle run olist_daily               # each run delivers and processes one day (repeat 10 times)
-databricks bundle run olist_sdp                 # the Lakeflow version (same landing files, for comparison, ADR-0012)
+databricks bundle run olist_daily               # each run delivers one day, runs both implementations, reconciles (repeat 10 times)
 ```
 
 ---
@@ -213,9 +243,11 @@ src/olist_pipeline/
   scd2.py        seller SCD Type 2
   gate.py        DQ gate
   gold.py        star schema and mart
+  reconcile.py   daily comparison of the two implementations
   cli.py         job task entry point (local and Databricks)
+lakeflow/        the declarative implementation (SQL + the seller SCD2 in Python)
 tests/           unit tests, e2e tests, synthetic Olist fixture
-resources/       Databricks Asset Bundle job definitions
+resources/       Databricks Asset Bundle: jobs, the declarative pipeline, two dashboards
 docs/adr/        architecture decision records (Japanese / English / Chinese)
 ```
 

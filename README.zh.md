@@ -7,6 +7,8 @@
 这是一个数据工程作品集项目。它把巴西电商数据集 [Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce)（约 10 万订单）回放成"每天投递的文件"，在 Databricks 上构建 **增量摄取 → 校验与隔离 → CDC / SCD2 → 星型模型**。
 回放时会故意注入重复行、迟到数据、非法值、CDC 乱序、schema 变更和卖家迁址。测试证明，管道自己的质量指标能把这些异常全部捕获。
 
+整套规格实现了 **两遍**：手写的 Structured Streaming + MERGE，以及 Lakeflow Spark Declarative Pipelines。两者每天读取同一批文件运行，由对账任务逐行比较 16 张表（ADR-0013）。
+
 ---
 
 ## 架构
@@ -26,7 +28,28 @@ flowchart LR
 ```
 
 Databricks Job（`resources/olist_jobs.yml`，serverless）：
-`replay_batch → bronze → silver → dim_seller_scd2 → dq_gate → gold → mart`
+
+```
+replay_batch ─┬─ bronze → silver → dim_seller_scd2 → dq_gate → gold → mart ─┬─ reconcile
+              └─ sdp_silver_and_gate → sdp_gold  (Lakeflow, two refreshes) ──┘
+```
+
+---
+
+## 两套实现，每天对账
+
+| | 命令式（`src/olist_pipeline/`） | 声明式（`lakeflow/`） |
+|---|---|---|
+| 读取文件 | Auto Loader 加 checkpoint | `read_files` 流式表 |
+| 去重、CDC | `foreachBatch` + MERGE | `AUTO CDC ... SEQUENCE BY` |
+| 卖家 SCD2 | 手写 MERGE（`scd2.py`） | `AUTO CDC FROM SNAPSHOT`，加一个视图实现从 1900 年开始 |
+| 规则和隔离 | `quality.py`、`ops.dq_metrics` | 每行的违规规则只列一次，expectation 按名字引用；指标在事件日志里 |
+| 闸门（坏行超过 5%） | `gate.py` 在 Gold 之前停止 | `dq_gate` 让两次刷新中的第一次失败，第二次（Gold）不会执行 |
+| 增量 Gold | Change Data Feed 加自己维护的水位 | 物化视图，刷新方式由平台决定 |
+| 测试 | 本地 71 个测试（pytest） | 每天和命令式版本对账 |
+| 代码量（不含注释） | Python 约 1,070 行 | SQL + Python 约 550 行 |
+
+**结果：** 16 张表（Silver、维度表、三种事实表、汇总表、隔离表、规则指标）的差异都是 0 行。对账发现了手写版本的两个真实问题：重新投递的快照让卖家信息倒退（ADR-0012），以及按读取时间排序重新投递的数据，在一次读取好几天的文件时会出错（ADR-0013）。
 
 ---
 
@@ -40,7 +63,7 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 | **迟到数据**（算在哪一天？） | 按销售发生日归日；迟到 3 天以内通过 MERGE 回溯修正 Gold，超过 3 天进隔离区 | [ADR-0004](docs/adr/zh/0004-late-data.md) | `add_lateness`, `merge_fact` | `test_late_items_are_accepted_and_dated_by_the_sale` |
 | **数据质量**（坏行去哪、谁会发现、何时停止） | 按规则隔离并记录指标；单次运行的坏行比例超过 5% 时不发布 Gold | [ADR-0005](docs/adr/zh/0005-data-quality-gate.md) | [quality.py](src/olist_pipeline/quality.py), [gate.py](src/olist_pipeline/gate.py) | `test_gate_blocked_only_the_poisoned_run` |
 
-其他决策：[订单履约的累积快照](docs/adr/zh/0009-accumulating-snapshot-fulfillment.md)、[每日订单积压的周期快照](docs/adr/zh/0010-periodic-snapshot-backlog.md)、[用 Change Data Feed 增量处理 Gold](docs/adr/zh/0011-incremental-gold-cdf.md)、[与 Lakeflow 版本的对比](docs/adr/zh/0012-lakeflow-comparison.md)、[数据契约与 `_rescued_data`](docs/adr/zh/0006-data-contracts-and-rescued-data.md)、[客户身份归并（`customer_unique_id`）](docs/adr/zh/0007-customer-identity.md)、[命令式与声明式（Lakeflow）的对比](docs/adr/zh/0008-imperative-vs-declarative.md)
+其他决策：[订单履约的累积快照](docs/adr/zh/0009-accumulating-snapshot-fulfillment.md)、[每日订单积压的周期快照](docs/adr/zh/0010-periodic-snapshot-backlog.md)、[用 Change Data Feed 增量处理 Gold](docs/adr/zh/0011-incremental-gold-cdf.md)、[与 Lakeflow 版本的对比](docs/adr/zh/0012-lakeflow-comparison.md)、[两套完整实现，每天对账](docs/adr/zh/0013-two-implementations.md)、[数据契约与 `_rescued_data`](docs/adr/zh/0006-data-contracts-and-rescued-data.md)、[客户身份归并（`customer_unique_id`）](docs/adr/zh/0007-customer-identity.md)、[命令式与声明式（Lakeflow）的对比](docs/adr/zh/0008-imperative-vs-declarative.md)
 
 ---
 
@@ -61,9 +84,9 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 | 配送时间早于下单时间 | 3 | `delivered_before_purchase` | 3 |
 | 新字段 `discount_amount` | 314 | `rescued_data` | 314 |
 
-### 测试（`uv run pytest`，共 64 个）
-- **45 个单元测试**：去重、只前进的 CDC、SCD2（幂等、快照中缺失不等于删除、时点关联）、质量规则边界值、契约解析、客户身份归并、mart 的 GMV 口径。
-- **19 个端到端测试**：回填加回放 6 天，最后一天注入约 12% 的坏行。测试核对每一类异常，检查闸门只拦下被污染的那天、重跑不产生任何变化、下一次运行时 Gold 能追上。
+### 测试（`uv run pytest`，共 71 个）
+- **51 个单元测试**：去重、只前进的 CDC、SCD2（幂等、快照中缺失不等于删除、时点关联）、质量规则边界值、契约解析、客户身份归并、mart 的 GMV 口径，以及对账逻辑本身。
+- **20 个端到端测试**：回填加回放 6 天，最后一天注入约 12% 的坏行。测试核对每一类异常，检查闸门只拦下被污染的那天、重跑不产生任何变化、下一次运行时 Gold 能追上。
 
 ### 真实数据（Olist，约 10 万订单）的运行结果
 
@@ -82,7 +105,7 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 
 ### 截图（Databricks Free Edition）
 
-**每日作业 `olist_daily`**：在 serverless 上依次运行 7 个任务，每次约 6 分半（连续成功 11 次）。
+**每日作业 `olist_daily`**：在 serverless 上依次运行 7 个任务，每次约 6 分半（连续成功 11 次）。这些截图早于 ADR-0013；ADR-0013 在同一个作业里加入了声明式管道和对账。
 
 ![olist_daily 任务 DAG](docs/images/job_dag.png)
 
@@ -120,7 +143,7 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 | [`07_fulfillment`](notebooks/walkthrough/07_fulfillment.py) | 累积快照、右删失 |
 | [`08_backlog`](notebooks/walkthrough/08_backlog.py) | 周期快照、迟到数据修正过去 |
 | [`09_incremental`](notebooks/walkthrough/09_incremental.py) | 用 Change Data Feed 增量处理，结果与全量重建一致 |
-| [`10_lakeflow_comparison`](notebooks/walkthrough/10_lakeflow_comparison.py) | 与 Lakeflow 版本的核对（仅限 Databricks） |
+| [`10_lakeflow_comparison`](notebooks/walkthrough/10_lakeflow_comparison.py) | 两套实现的对账，以及声明式的缺口是怎么补上的 |
 
 ---
 
@@ -140,7 +163,8 @@ Databricks Job（`resources/olist_jobs.yml`，serverless）：
 | Gold | `olist_gold.dim_{date, customer, product, seller}` | 维度表；客户按 `customer_unique_id` 归并 |
 | Gold | `olist_gold.mart_seller_delivery_performance` | 卖家 × 月：GMV、准时交付率、平均评分 |
 | Ops | `olist_ops.{dq_metrics, quarantine, dq_gate_log, replay_manifest}` | 质量指标、隔离区、闸门判定、回放计划（标准答案） |
-| Lakeflow | `olist_sdp.*` | 用声明式实现同一规格的参考版本（`lakeflow/`，用于核对，ADR-0012） |
+| Lakeflow | `olist_sdp.*` | 声明式实现：同样的表（`silver_*`、`dim_*`、`fact_*`、汇总表、`quarantine`、`dq_metrics`），以及 `event_log`（ADR-0013） |
+| Ops | `olist_ops.reconcile_log` | 每天的对账结果：每张表只在一边出现的行数 |
 | Ops | `olist_ops.{gold_watermarks, gold_incremental_stats}` | Gold 增量处理：每张源表已处理的版本、每次运行重建的订单数 |
 
 ---
@@ -163,8 +187,7 @@ uv run olist run-local --base-path ./data       # 真实数据：回填 + 10 个
 databricks auth login --host https://<your-workspace>.cloud.databricks.com
 ./scripts/download_olist.sh
 ./scripts/deploy_databricks.sh                  # 上传到 Volume → bundle deploy → 运行 olist_setup
-databricks bundle run olist_daily               # 每次运行投递并处理一天（重复 10 次）
-databricks bundle run olist_sdp                 # Lakeflow 版本（同一批投递文件，用于对比，ADR-0012）
+databricks bundle run olist_daily               # 每次运行投递一天，两套实现都处理，然后对账（重复 10 次）
 ```
 
 ---
@@ -181,9 +204,11 @@ src/olist_pipeline/
   scd2.py        卖家 SCD Type 2
   gate.py        数据质量闸门
   gold.py        星型模型与 mart
+  reconcile.py   两套实现的每日对账
   cli.py         作业任务入口（本地与 Databricks 共用）
+lakeflow/        声明式实现（SQL，以及用 Python 写的卖家 SCD2）
 tests/           单元测试、端到端测试、合成的 Olist 测试数据
-resources/       Databricks Asset Bundle 的 Job 定义
+resources/       Databricks Asset Bundle：作业、声明式管道、两个看板
 docs/adr/        设计决策记录（日文 / 英文 / 中文）
 ```
 

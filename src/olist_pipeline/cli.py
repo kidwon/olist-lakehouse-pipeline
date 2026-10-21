@@ -13,7 +13,7 @@ import uuid
 
 from pyspark.sql import SparkSession
 
-from . import bronze, gate, gold, replay, scd2, silver
+from . import bronze, gate, gold, reconcile, replay, scd2, silver
 from .config import Config
 
 DATABRICKS_CATALOG = "workspace"
@@ -104,7 +104,19 @@ def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="olist")
     p.add_argument(
         "task",
-        choices=["setup", "prepare", "replay", "bronze", "silver", "scd2", "gate", "gold", "mart", "run-local"],
+        choices=[
+            "setup",
+            "prepare",
+            "replay",
+            "bronze",
+            "silver",
+            "scd2",
+            "gate",
+            "gold",
+            "mart",
+            "reconcile",
+            "run-local",
+        ],
     )
     p.add_argument("--env", choices=["local", "databricks"], default="local")
     p.add_argument("--base-path")
@@ -134,6 +146,7 @@ def main(argv: list[str] | None = None) -> None:
         "gate": lambda: gate.run(spark, cfg),
         "gold": lambda: gold.run(spark, cfg),
         "mart": lambda: gold.run_mart(spark, cfg),
+        "reconcile": lambda: reconcile.run(spark, cfg),
         "run-local": lambda: run_local(spark, cfg),
     }
     tasks[args.task]()

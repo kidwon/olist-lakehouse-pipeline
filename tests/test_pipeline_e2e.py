@@ -13,7 +13,7 @@ from olist_fixture import write_fixture
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 
-from olist_pipeline import cli, gold, replay
+from olist_pipeline import cli, gold, reconcile, replay
 from olist_pipeline.config import Config
 
 BACKFILL = dt.date(2018, 5, 31)
@@ -293,3 +293,15 @@ def test_preparing_again_cannot_reset_a_started_replay(run):
     spark, cfg, *_ = run
     with pytest.raises(replay.ReplayAlreadyStarted):
         replay.prepare(spark, cfg)
+
+
+def test_every_reconciled_column_exists_in_the_imperative_tables(run):
+    """The reconciliation compares named columns: one renamed in the imperative code must fail
+    here, locally, instead of the daily job on Databricks."""
+    spark, cfg, *_ = run
+    for check in reconcile.CHECKS:
+        df = spark.table(cfg.table(*check.imperative))
+        missing = set(check.columns) - set(df.columns)
+        assert not missing, f"{check.name}: {missing}"
+        if check.where:
+            df.where(check.where).limit(1).collect()

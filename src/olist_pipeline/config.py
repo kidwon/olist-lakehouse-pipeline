@@ -44,10 +44,16 @@ class Config:
         }
     )
 
+    # Schema the declarative pipeline (lakeflow/) writes to; the reconcile task reads it.
+    sdp_schema: str = "olist_sdp"
+
     # ---------------------------------------------------------------------
     def table(self, layer: str, name: str) -> str:
         schema = self.schemas[layer]
         return f"{self.catalog}.{schema}.{name}" if self.catalog else f"{schema}.{name}"
+
+    def sdp_table(self, name: str) -> str:
+        return f"{self.catalog}.{self.sdp_schema}.{name}" if self.catalog else f"{self.sdp_schema}.{name}"
 
     def schema_name(self, layer: str) -> str:
         schema = self.schemas[layer]

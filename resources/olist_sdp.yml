@@ -1,7 +1,7 @@
 resources:
   pipelines:
-    # The same spec as the imperative jobs, declaratively (Lakeflow Spark Declarative Pipelines,
-    # ADR-0012). Triggered, not continuous: Free Edition allows one active pipeline per type.
+    # The full spec, declaratively (Lakeflow Spark Declarative Pipelines, ADR-0013). Triggered by
+    # the daily job in two refreshes (silver and gate, then gold), never continuous.
     olist_sdp:
       name: olist_sdp
       catalog: workspace
@@ -9,6 +9,12 @@ resources:
       serverless: true
       continuous: false
       channel: CURRENT
+      # The event log as a table: expectation counts and how each materialized view was refreshed,
+      # readable by the dashboard without owning the pipeline.
+      event_log:
+        catalog: workspace
+        schema: olist_sdp
+        name: event_log
       libraries:
         - file:
             path: ../lakeflow/olist_sdp.sql
@@ -17,3 +23,8 @@ resources:
       configuration:
         olist.landing: /Volumes/workspace/olist_raw/files/landing
         olist.backfill_date: "2018-05-31"
+        olist.late_tolerance_days: "3"
+        olist.dq_max_bad_ratio: "0.05"
+        # A failed update is not retried by the pipeline: a failed gate fails again on retry, and the
+        # job retries the steps where a retry helps (ADR-0013).
+        pipelines.numUpdateRetryAttempts: "0"
